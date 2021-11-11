@@ -1,0 +1,31 @@
+[env]
+CFLAGS = "-march=armv8-a -Wall -O3 -fpic -nostdlib -nostartfiles -ffreestanding -mtune=cortex-a53"
+RUSTFLAGS = "-C target-cpu=cortex-a53 -C target-feature=+strict-align,+a53,+fp-armv8,+neon"
+QEMU_MACHINE = "raspi3b"
+QEMU_EXE = "qemu-system-aarch64"
+LINKER_SCRIPT = "link64.ld"
+
+[tasks.kbuild]
+script_runner = "powershell"
+script_extension = "ps1"
+script = '''
+echo "BUILDING RUST..."
+cargo build --target aarch64-unknown-none --release
+echo "BUILDING ASM, LINKING"
+$env:args = '-T "./src/misc/${env:LINKER_SCRIPT}" -o "./target/aarch64-unknown-none/release/kernel8.elf" "./src/asm/boot.S" "target/aarch64-unknown-none/release/libkernel.a"'
+iex "D:\bin\aarch64-none-elf\bin\aarch64-none-elf-gcc.exe ${env:args} ${env:CFLAGS}"
+'''
+
+[tasks.qemu]
+command = "${QEMU_EXE}"
+args = ["-M", "${QEMU_MACHINE}", "-kernel", "./target/aarch64-unknown-none/release/kernel8.elf", "-serial", "stdio", "-serial", "null", "-d", "int"]
+dependencies = [
+    "kbuild"
+]
+
+[tasks.binary]
+command = "D:\\bin\\aarch64-none-elf\\bin\\aarch64-none-elf-objcopy.exe"
+args = ["-o", "binary", "./target/aarch64-unknown-none/release/kernel8.elf", "./target/aarch64-unknown-none/release/kernel8.img"]
+dependencies = [
+    "kbuild"
+]
