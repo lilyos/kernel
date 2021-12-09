@@ -16,17 +16,6 @@ impl Semaphore {
     #[inline]
     pub fn up(&self) {
         self.count.fetch_add(1, Ordering::AcqRel);
-
-        unsafe {
-            // Ensure memory accesses are completed
-            asm!("dmb sy");
-
-            // Pause execution until memory, cache, branch prediction, and tlb operations are complete
-            asm!("dsb sy");
-
-            // Tell all cores to wake up
-            asm!("sev");
-        }
     }
 
     // Decrease count
@@ -35,10 +24,6 @@ impl Semaphore {
         loop {
             if self.try_down().is_ok() {
                 return;
-            }
-
-            unsafe {
-                asm!("wfe");
             }
         }
     }
@@ -51,9 +36,6 @@ impl Semaphore {
             value -= 1;
             self.count.store(value, Ordering::Release);
 
-            unsafe {
-                asm!("dmb sy");
-            }
             Ok(())
         } else {
             self.count.store(value, Ordering::Release);

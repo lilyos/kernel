@@ -21,10 +21,6 @@ impl<T> Mutex<T> {
 
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         if !self.lock.swap(true, Ordering::Acquire) {
-            unsafe {
-                // Ensure memory accesses are completed
-                asm!("dmb sy");
-            }
             Some(MutexGuard { _data: self })
         } else {
             None
@@ -35,10 +31,6 @@ impl<T> Mutex<T> {
         loop {
             if let Some(data) = self.try_lock() {
                 return data;
-            }
-
-            unsafe {
-                asm!("wfe");
             }
         }
     }
@@ -54,14 +46,6 @@ impl<T> Mutex<T> {
 impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         self._data.lock.swap(false, Ordering::Release);
-
-        unsafe {
-            // Pause execution until memory, cache, branch prediction, and tlb operations all complete
-            asm!("dsb sy");
-
-            // Wake up all cores that are waiting
-            asm!("sev")
-        }
     }
 }
 

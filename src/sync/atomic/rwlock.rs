@@ -39,8 +39,6 @@ impl<T> RWLock<T> {
 
         // Set status to locked
         if !self.write_lock.swap(true, Ordering::Acquire) {
-            unsafe { asm!("dmb sy") }
-
             Some(WriteLockGuard { _data: self })
         } else {
             None
@@ -52,10 +50,6 @@ impl<T> RWLock<T> {
         loop {
             if let Some(write_guard) = self.try_lock() {
                 return write_guard;
-            }
-
-            unsafe {
-                asm!("wfe");
             }
         }
     }
@@ -76,8 +70,6 @@ impl<T> RWLock<T> {
             if let Some(read_guard) = self.try_read() {
                 return read_guard;
             }
-
-            unsafe { asm!("wfe") }
         }
     }
 
@@ -98,28 +90,12 @@ impl<T> RWLock<T> {
 impl<T> Drop for WriteLockGuard<'_, T> {
     fn drop(&mut self) {
         self._data.write_lock.store(false, Ordering::Release);
-
-        unsafe {
-            // Ensure memory accesses are completed
-            asm!("dmb sy");
-
-            // Pause execution until memory, cache, branch prediction, and tlb operations all complete
-            asm!("dsb sy");
-
-            // Tell all cores to wake the fuck up
-            asm!("sev");
-        }
     }
 }
 
 impl<T> Drop for ReadLockGuard<'_, T> {
     fn drop(&mut self) {
         self._data.read_locks.fetch_sub(1, Ordering::Release);
-
-        unsafe {
-            // Ensure memory accesses are completed
-            asm!("dmb sy");
-        }
     }
 }
 

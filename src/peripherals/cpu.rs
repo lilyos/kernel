@@ -4,9 +4,3 @@ pub fn delay(time: u32) {
         unsafe { asm!("nop") };
     }
 }
-
-pub unsafe fn get_exception_level() -> u32 {
-    let x: u32;
-    asm!("mrs {:x}, CurrentEL", out(reg) x);
-    x >> 2
-}

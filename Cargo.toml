@@ -1,15 +1,6 @@
 [package]
 name = "kernel"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-
-[lib]
-crate-type = ["staticlib"]
-
-[profile.release]
-panic = "abort"
-
-[profile.dev]
-panic = "abort"

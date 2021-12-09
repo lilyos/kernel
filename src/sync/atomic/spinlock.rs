@@ -22,26 +22,10 @@ impl Spinlock {
         {
             unsafe { asm!("nop") }
         }
-
-        unsafe {
-            // Ensure memory accesses are completed
-            asm!("dmb");
-        }
     }
 
     #[inline]
     pub fn release(&self) {
         self.flag.store(false, Ordering::SeqCst);
-
-        unsafe {
-            // Ensure memory accesses are completed
-            asm!("dmb");
-
-            // Pause execution until memory, cache, branch prediction, and tlb operations all complete
-            asm!("dsb");
-
-            // Tell all cores to wake the fuck up
-            asm!("sev");
-        }
     }
 }
