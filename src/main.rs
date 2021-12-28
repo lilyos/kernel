@@ -1,6 +1,14 @@
 #![no_std]
 #![no_main]
-#![feature(asm, const_fn_trait_bound, panic_info_message, lang_items)]
+#![feature(
+    asm,
+    const_fn_trait_bound,
+    panic_info_message,
+    lang_items,
+    asm_sym,
+    naked_functions,
+    asm_const
+)]
 
 mod info;
 mod peripherals;
@@ -24,13 +32,28 @@ macro_rules! println {
 }
 
 #[no_mangle]
-pub extern "C" fn _start() -> ! {
-    kentry()
+#[naked]
+pub extern "sysv64" fn _start() -> ! {
+    unsafe {
+        asm!(
+            "inc qword ptr [rdi]",
+            "jmp {}",
+            sym kentry,
+            // three = const 3u64,
+            options(noreturn),
+        )
+    }
+}
+
+extern "sysv64" fn add_one(addr: *mut u64) {
+    unsafe { asm!("inc qword ptr [rdi]", in("rdi") addr) }
 }
 
 #[no_mangle]
-fn kentry() -> ! {
+extern "sysv64" fn kentry(addr: *mut u64) -> ! {
+    add_one(addr); // 2
     println!("`Println!` functioning!");
+    add_one(addr); // 3
     let mutex = sync::Mutex::new(9);
     {
         println!("Locking mutex!");
@@ -38,8 +61,10 @@ fn kentry() -> ! {
         println!("Locked mutex! Got value {}", *lock);
     }
     println!("Dropped mutex!");
+    add_one(addr); // 4
 
     println!("Beginning echo...");
+    add_one(addr); // 5
     loop {
         let mut uart = crate::peripherals::UART.lock();
         let byte = uart.read_byte();
@@ -56,5 +81,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(loc) = info.location() {
         println!("Line: {}\nFile: {}", loc.line(), loc.file());
     }
-    loop {}
+    loop {
+        unsafe { asm!("hlt") }
+    }
 }
