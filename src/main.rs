@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(
-    asm,
     const_fn_trait_bound,
     panic_info_message,
     lang_items,
@@ -15,7 +14,7 @@ mod peripherals;
 mod sync;
 mod traits;
 
-use core::fmt::Write;
+use core::{arch::asm, fmt::Write};
 
 macro_rules! print {
     ($($arg:tt)*) => (
@@ -36,24 +35,16 @@ macro_rules! println {
 pub extern "sysv64" fn _start() -> ! {
     unsafe {
         asm!(
-            "inc qword ptr [rdi]",
             "jmp {}",
             sym kentry,
-            // three = const 3u64,
             options(noreturn),
         )
     }
 }
 
-extern "sysv64" fn add_one(addr: *mut u64) {
-    unsafe { asm!("inc qword ptr [rdi]", in("rdi") addr) }
-}
-
 #[no_mangle]
-extern "sysv64" fn kentry(addr: *mut u64) -> ! {
-    add_one(addr); // 2
+extern "sysv64" fn kentry() -> ! {
     println!("`Println!` functioning!");
-    add_one(addr); // 3
     let mutex = sync::Mutex::new(9);
     {
         println!("Locking mutex!");
@@ -61,10 +52,9 @@ extern "sysv64" fn kentry(addr: *mut u64) -> ! {
         println!("Locked mutex! Got value {}", *lock);
     }
     println!("Dropped mutex!");
-    add_one(addr); // 4
 
     println!("Beginning echo...");
-    add_one(addr); // 5
+
     loop {
         let mut uart = crate::peripherals::UART.lock();
         let byte = uart.read_byte();
@@ -82,6 +72,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         println!("Line: {}\nFile: {}", loc.line(), loc.file());
     }
     loop {
-        unsafe { asm!("hlt") }
+        unsafe { asm!("nop") }
     }
 }

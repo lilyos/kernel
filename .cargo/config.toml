@@ -4,3 +4,4 @@ build-std-features = ["compiler-builtins-mem"]
 
 [build]
 target = "./src/misc/x86_64-unknown-none.json"
+rustflags = ["-Clink-args=-pie", "-Zmacro-backtrace"]

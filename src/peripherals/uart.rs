@@ -1,4 +1,7 @@
-use core::fmt::{Error, Write};
+use core::{
+    arch::asm,
+    fmt::{Error, Write},
+};
 // use core::ptr::{read_volatile, write_volatile};
 
 use crate::traits::Init;
