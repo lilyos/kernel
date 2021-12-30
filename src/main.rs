@@ -18,24 +18,11 @@ mod traits;
 #[global_allocator]
 static ALLOCATOR: allocator::HeapAllocator = allocator::HeapAllocator::new();
 
-use core::{arch::asm, fmt::Write};
+static PAGE_ALLOCATOR: allocator::PageAllocator = allocator::PageAllocator::new();
 
-macro_rules! print {
-    ($($arg:tt)*) => (
-        {
-            let mut uart = crate::peripherals::UART.lock();
-            uart.write_fmt(format_args!($($arg)*)).unwrap();
-        }
-    );
-}
+use crate::peripherals::uart::{print, println};
 
-macro_rules! println {
-    () => (print!("\n"));
-    ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
-}
-
-static mut MMAP: *mut allocator::MemoryEntry = core::ptr::null_mut();
-static mut MMAP_LEN: usize = 0;
+use core::arch::asm;
 
 #[no_mangle]
 #[naked]
@@ -43,7 +30,7 @@ pub extern "C" fn _start() -> ! {
     unsafe {
         asm!(
             "jmp {}",
-            sym kentry,
+            sym _start2,
             options(noreturn),
         )
     }
@@ -60,11 +47,16 @@ extern "C" fn _start2() -> ! {
             out(reg) len,
         )
     }
-
+    kentry(mmap, len)
 }
 
 #[no_mangle]
-extern "C" fn kentry() -> ! {
+extern "C" fn kentry(ptr: *mut allocator::MemoryEntry, len: usize) -> ! {
+    let mmap = unsafe { core::slice::from_raw_parts(ptr, len) };
+    unsafe { PAGE_ALLOCATOR.init(mmap) };
+
+    PAGE_ALLOCATOR.display();
+
     println!("`Println!` functioning!");
     let mutex = sync::Mutex::new(9);
     {
@@ -75,8 +67,13 @@ extern "C" fn kentry() -> ! {
     }
     println!("Dropped mutex!");
 
-    let mmap = unsafe { core::slice::from_raw_parts(MMAP, MMAP_LEN) };
     println!("uh {:#?}", mmap);
+
+    let x: *mut u64;
+    unsafe {
+        asm!("mov {}, cr3", out(reg) x);
+    }
+    println!(":v {:#?}", x);
 
     println!("Beginning echo...");
 

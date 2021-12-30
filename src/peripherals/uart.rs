@@ -108,3 +108,22 @@ impl Write for Uart {
         Ok(())
     }
 }
+
+macro_rules! print {
+    ($($arg:tt)*) => (
+        {
+            use core::fmt::Write;
+            let mut uart = crate::peripherals::UART.lock();
+            uart.write_fmt(format_args!($($arg)*)).unwrap();
+        }
+    );
+}
+
+pub(crate) use print;
+
+macro_rules! println {
+    () => (print!("\n"));
+    ($($arg:tt)*) => (crate::print!("{}\n", format_args!($($arg)*)));
+}
+
+pub(crate) use println;

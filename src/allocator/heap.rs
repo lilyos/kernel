@@ -1,3 +1,4 @@
+use super::align;
 use crate::sync::Mutex;
 
 extern crate alloc;
@@ -61,7 +62,7 @@ impl HeapAllocator {
     pub fn find_region(&self, size: usize, alignment: usize) -> Option<(*mut FreeRegion, usize)> {
         let mut current = {
             let x = self.head.lock();
-            (*x).clone()
+            *x
         };
         while !current.next.is_null() {
             let region = unsafe { &mut *current.next };
@@ -70,12 +71,10 @@ impl HeapAllocator {
                 let val = Some((current.next, alloc));
                 current.next = next;
                 return val;
+            } else if !current.next.is_null() {
+                current = unsafe { *current.next };
             } else {
-                if !current.next.is_null() {
-                    current = unsafe { *current.next };
-                } else {
-                    break;
-                }
+                break;
             }
         }
         None
@@ -114,11 +113,6 @@ impl HeapAllocator {
             layout.align(),
         )
     }
-}
-
-/// Must be power of 2
-fn align(addr: usize, align: usize) -> usize {
-    (addr + align - 1) & !(align - 1)
 }
 
 unsafe impl GlobalAlloc for HeapAllocator {
