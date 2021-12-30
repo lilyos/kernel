@@ -19,7 +19,7 @@ impl Uart {
         Uart {}
     }
 
-    fn write_empty(&self) -> bool {
+    fn write_full(&self) -> bool {
         (inb(COM_1 + 5) & 0x20) == 0
     }
 
@@ -40,7 +40,7 @@ impl Uart {
 
     pub fn write_byte(&mut self, c: u8) {
         loop {
-            if self.write_empty() {
+            if self.write_full() {
                 unsafe { asm!("nop") }
             } else {
                 break;

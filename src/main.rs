@@ -8,11 +8,15 @@
     naked_functions,
     asm_const
 )]
+#![feature(default_alloc_error_handler)]
 
-mod info;
+mod allocator;
 mod peripherals;
 mod sync;
 mod traits;
+
+#[global_allocator]
+static ALLOCATOR: allocator::HeapAllocator = allocator::HeapAllocator::new();
 
 use core::{arch::asm, fmt::Write};
 
@@ -30,9 +34,12 @@ macro_rules! println {
     ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
 }
 
+static mut MMAP: *mut allocator::MemoryEntry = core::ptr::null_mut();
+static mut MMAP_LEN: usize = 0;
+
 #[no_mangle]
 #[naked]
-pub extern "sysv64" fn _start() -> ! {
+pub extern "C" fn _start() -> ! {
     unsafe {
         asm!(
             "jmp {}",
@@ -42,16 +49,34 @@ pub extern "sysv64" fn _start() -> ! {
     }
 }
 
+extern "C" fn _start2() -> ! {
+    let mmap: *mut allocator::MemoryEntry;
+    let len: usize;
+    unsafe {
+        asm!(
+            "mov {}, r9",
+            "mov {}, r10",
+            out(reg) mmap,
+            out(reg) len,
+        )
+    }
+
+}
+
 #[no_mangle]
-extern "sysv64" fn kentry() -> ! {
+extern "C" fn kentry() -> ! {
     println!("`Println!` functioning!");
     let mutex = sync::Mutex::new(9);
     {
         println!("Locking mutex!");
         let lock = mutex.lock();
         println!("Locked mutex! Got value {}", *lock);
+        assert!(*lock == 9)
     }
     println!("Dropped mutex!");
+
+    let mmap = unsafe { core::slice::from_raw_parts(MMAP, MMAP_LEN) };
+    println!("uh {:#?}", mmap);
 
     println!("Beginning echo...");
 
