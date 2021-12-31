@@ -1,6 +1,8 @@
-use super::{align, MemoryEntry, MemoryKind};
+use crate::allocator::{
+    align, MemoryDescriptor, MemoryEntry, MemoryKind, MemoryType, PhysAddr, VirtAddr,
+};
+use crate::println;
 use crate::sync::Mutex;
-extern crate alloc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PageAllocation {
@@ -23,9 +25,6 @@ impl PageAllocation {
     }
 }
 
-pub struct PhysAddr(usize);
-pub struct VirtAddr(usize);
-
 #[derive(PartialEq)]
 pub enum PageType {
     Normal = 4096,
@@ -46,20 +45,24 @@ impl PageAllocator {
     /// Must be run before allocator can be used
     /// Unsafe because I'm not sure I'm doing it right
     /// and it could kill basically everything
-    pub unsafe fn init(&self, mmap: &[MemoryEntry]) {
+    pub unsafe fn init(&self, mmap: &[MemoryDescriptor]) {
         mmap.iter()
-            .filter(|i| i.kind == MemoryKind::Reclaim)
+            .map(|i| i.into())
+            .filter(|i: &MemoryEntry| i.kind == MemoryKind::Reclaim)
             .map(|i| {
+                println!("Reclaiming {:#?}", i);
                 for addr in (i.start..i.end).step_by(4096) {
-                    self.add_free_page(PhysAddr(addr))
+                    self.add_free_page(PhysAddr(addr));
+                    // println!("did one");
                 }
             })
             .for_each(|_| {});
         let mut head = self.head.lock();
         Self::sort_pages(&mut *head);
+        println!("Sorted")
     }
 
-    pub fn allocate(&self, kind: PageType) -> Option<PhysAddr> {
+    pub fn allocate(&self, kind: PageType, count: usize) -> Option<PhysAddr> {
         let mut current = {
             let x = self.head.lock();
             *x
@@ -124,6 +127,7 @@ impl PageAllocator {
 
     pub fn add_free_page(&self, addr: PhysAddr) {
         assert!(addr.0 % 4096 == 0);
+        assert!(addr.0 % core::mem::align_of::<PageAllocation>() == 0);
         let mut head = self.head.lock();
         let mut new = PageAllocation::new(addr.0);
         new.next = head.next;
@@ -132,6 +136,5 @@ impl PageAllocator {
         unsafe { ptr.write(new) };
 
         head.next = addr.0 as *mut PageAllocation;
-        Self::sort_pages(addr.0 as *mut PageAllocation)
     }
 }

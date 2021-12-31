@@ -4,23 +4,16 @@ pub use heap::HeapAllocator;
 mod paging;
 pub use paging::PageAllocator;
 
+// mod memory_manager;
+// pub use memory_manager::MemoryManager;
+
+mod uefi_interop;
+pub use uefi_interop::{MemoryDescriptor, MemoryEntry, MemoryKind, MemoryType};
+
+pub struct PhysAddr(pub usize);
+pub struct VirtAddr(pub usize);
+
 /// Must be power of 2
 pub fn align(addr: usize, align: usize) -> usize {
     (addr + align - 1) & !(align - 1)
-}
-
-#[repr(C)]
-#[derive(Debug, PartialEq)]
-pub enum MemoryKind {
-    Reclaim,
-    ACPIReclaim,
-    ACPINonVolatile,
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct MemoryEntry {
-    pub start: usize,
-    pub end: usize,
-    pub kind: MemoryKind,
 }

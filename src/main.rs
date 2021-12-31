@@ -20,6 +20,8 @@ static ALLOCATOR: allocator::HeapAllocator = allocator::HeapAllocator::new();
 
 static PAGE_ALLOCATOR: allocator::PageAllocator = allocator::PageAllocator::new();
 
+// static MEMORY_MANAGER: allocator::MemoryManager = allocator::MemoryManager::new();
+
 use crate::peripherals::uart::{print, println};
 
 use core::arch::asm;
@@ -37,7 +39,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 extern "C" fn _start2() -> ! {
-    let mmap: *mut allocator::MemoryEntry;
+    let mmap: *mut allocator::MemoryDescriptor;
     let len: usize;
     unsafe {
         asm!(
@@ -51,13 +53,15 @@ extern "C" fn _start2() -> ! {
 }
 
 #[no_mangle]
-extern "C" fn kentry(ptr: *mut allocator::MemoryEntry, len: usize) -> ! {
-    let mmap = unsafe { core::slice::from_raw_parts(ptr, len) };
-    unsafe { PAGE_ALLOCATOR.init(mmap) };
+extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
+    println!("`Println!` functioning!");
 
+    let mmap = unsafe { core::slice::from_raw_parts(ptr, len) };
+    // println!("MMAP: {:#?}", mmap);
+
+    unsafe { PAGE_ALLOCATOR.init(mmap) };
     PAGE_ALLOCATOR.display();
 
-    println!("`Println!` functioning!");
     let mutex = sync::Mutex::new(9);
     {
         println!("Locking mutex!");
