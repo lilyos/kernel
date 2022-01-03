@@ -4,10 +4,24 @@ use crate::allocator::{
 use crate::println;
 use crate::sync::Mutex;
 
+use core::fmt::{Display, Formatter};
+
+static DIV: &str = "================================================================";
+
 #[derive(Debug, Clone, Copy)]
 pub struct PageAllocation {
     pub start: usize,
     pub next: *mut PageAllocation,
+}
+
+impl Display for PageAllocation {
+    fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
+        write!(
+            f,
+            "PageAllocation {{\n\taddr: 0x{:x},\n\tstart: 0x{:x},\n\tnext: {:?},\n}}",
+            self as *const PageAllocation as usize, self.start, self.next
+        )
+    }
 }
 
 impl PageAllocation {
@@ -50,57 +64,82 @@ impl PageAllocator {
             .map(|i| i.into())
             .filter(|i: &MemoryEntry| i.kind == MemoryKind::Reclaim)
             .map(|i| {
-                println!("Reclaiming {:#?}", i);
+                println!("Claiming {:#?}", i);
                 for addr in (i.start..i.end).step_by(4096) {
                     self.add_free_page(PhysAddr(addr));
-                    // println!("did one");
                 }
             })
             .for_each(|_| {});
         let mut head = self.head.lock();
         Self::sort_pages(&mut *head);
-        println!("Sorted")
     }
 
-    pub fn allocate(&self, kind: PageType, count: usize) -> Option<PhysAddr> {
+    pub fn alloc(&self, kind: PageType, count: usize) -> Option<PhysAddr> {
         let mut current = {
             let x = self.head.lock();
             *x
         };
         Self::sort_pages(&mut current);
-        while !current.next.is_null() {
-            let page = unsafe { &mut *current.next };
-            if kind == PageType::Normal {
-                let next = page.next;
-                let val = Some(PhysAddr(current.next as usize));
-                current.next = next;
-                return val;
-            } else if kind == PageType::Huge {
-                return None;
+        loop {
+            if !current.next.is_null() {
+                let mut page = unsafe { &mut *current.next };
+                if kind == PageType::Normal {
+                    if let Some(found) = Self::get_contiguous(&page, count) {
+                        let val = Some(PhysAddr(found as *const PageAllocation as usize));
+                        found.next = core::ptr::null_mut();
+                        current.next = found.next;
+                        return val;
+                    } else {
+                        current = unsafe { *current.next };
+                    }
+                } else if kind == PageType::Huge {
+                    current = unsafe { *current.next };
+                }
+            } else {
+                break;
             }
         }
         None
     }
 
     pub fn display(&self) {
-        let mut current = { &(*self.head.lock()) as *const PageAllocation };
+        println!("{}", DIV);
+        let mut current: *const PageAllocation = { &*self.head.lock() };
         while !current.is_null() {
-            let currentr = unsafe { &*current };
-            crate::println!("Item: {:#?}", currentr);
-            current = currentr.next;
+            let page = unsafe { &*current };
+            println!("Page Node (0x{:x}): {:#?}\n", page.start, page);
+            current = page.next;
+        }
+        println!("{}", DIV);
+    }
+
+    fn traverse(page: &PageAllocation) {
+        let mut current = page;
+        loop {
+            println!("Traversed Node: {}", current);
+            if !current.next.is_null() {
+                current = unsafe { &*current.next };
+            } else {
+                break;
+            }
         }
     }
 
     /// Sort MUST be called beforehand
-    fn find_contiguous(page: &PageAllocation, count: usize) -> Option<&PageAllocation> {
+    fn get_contiguous(page: &PageAllocation, count: usize) -> Option<&mut PageAllocation> {
         let mut current = page;
-        let mut counter = 0;
-        while !current.next.is_null() {
-            counter += 1;
-            if counter == count - 1 {
-                return Some(page);
+        let mut counter = 1;
+        loop {
+            if !current.next.is_null() {
+                counter += 1;
+                if counter == count {
+                    return Some(unsafe { &mut *current.next });
+                } else {
+                    current = unsafe { &mut *current.next };
+                }
+            } else {
+                break;
             }
-            current = unsafe { &*current.next };
         }
         None
     }
@@ -115,7 +154,7 @@ impl PageAllocator {
                 while !index.is_null() {
                     let currentr = unsafe { &mut *current };
                     let indexr = unsafe { &mut *index };
-                    if currentr.start > indexr.start {
+                    if currentr.start < indexr.start {
                         core::mem::swap(&mut currentr.start, &mut indexr.start);
                     }
                     index = indexr.next;
@@ -125,10 +164,16 @@ impl PageAllocator {
         }
     }
 
+    pub fn dealloc(&self, addr: PhysAddr) {
+        self.add_free_page(addr);
+    }
+
     pub fn add_free_page(&self, addr: PhysAddr) {
         assert!(addr.0 % 4096 == 0);
         assert!(addr.0 % core::mem::align_of::<PageAllocation>() == 0);
+
         let mut head = self.head.lock();
+
         let mut new = PageAllocation::new(addr.0);
         new.next = head.next;
 

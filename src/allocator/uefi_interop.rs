@@ -73,6 +73,7 @@ pub struct MemoryEntry {
     pub start: usize,
     pub end: usize,
     pub kind: MemoryKind,
+    ok: MemoryType,
 }
 
 impl From<&MemoryDescriptor> for MemoryEntry {
@@ -95,6 +96,7 @@ impl From<&MemoryDescriptor> for MemoryEntry {
             } else {
                 MemoryKind::Reserve
             },
+            ok: memd.ty,
         }
     }
 }

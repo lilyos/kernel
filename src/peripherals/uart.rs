@@ -122,7 +122,7 @@ macro_rules! print {
 pub(crate) use print;
 
 macro_rules! println {
-    () => (print!("\n"));
+    () => (crate::print!("\n"));
     ($($arg:tt)*) => (crate::print!("{}\n", format_args!($($arg)*)));
 }
 

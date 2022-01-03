@@ -26,6 +26,8 @@ use crate::peripherals::uart::{print, println};
 
 use core::arch::asm;
 
+extern crate alloc;
+
 #[no_mangle]
 #[naked]
 pub extern "C" fn _start() -> ! {
@@ -59,8 +61,34 @@ extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
     let mmap = unsafe { core::slice::from_raw_parts(ptr, len) };
     // println!("MMAP: {:#?}", mmap);
 
-    unsafe { PAGE_ALLOCATOR.init(mmap) };
-    PAGE_ALLOCATOR.display();
+    unsafe { PAGE_ALLOCATOR.init(&mmap[0..3]) };
+
+    println!("Initialized page allocator");
+
+    let page_addr = PAGE_ALLOCATOR
+        .allocate(allocator::PageType::Normal, 2)
+        .unwrap()
+        .0;
+
+    println!("Allocated pages");
+
+    unsafe { ALLOCATOR.init(page_addr, 4096 * 2) };
+    ALLOCATOR.display();
+
+    {
+        let mut uwu = alloc::vec::Vec::new();
+        let mut owo = alloc::vec::Vec::new();
+        uwu.push(1);
+        owo.push(1);
+        println!("Pushed 1 to vec\n{:#?}\n{:#?}", uwu, owo);
+        println!("Pushing a lot");
+        for i in 1..101 {
+            uwu.push(i);
+            owo.push(i);
+            println!("Pushed {}", i);
+        }
+        println!("Dropping");
+    }
 
     let mutex = sync::Mutex::new(9);
     {
@@ -71,13 +99,7 @@ extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
     }
     println!("Dropped mutex!");
 
-    println!("uh {:#?}", mmap);
-
-    let x: *mut u64;
-    unsafe {
-        asm!("mov {}, cr3", out(reg) x);
-    }
-    println!(":v {:#?}", x);
+    // println!("uh {:#?}", mmap);
 
     println!("Beginning echo...");
 

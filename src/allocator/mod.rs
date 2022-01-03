@@ -2,7 +2,7 @@ mod heap;
 pub use heap::HeapAllocator;
 
 mod paging;
-pub use paging::PageAllocator;
+pub use paging::{PageAllocator, PageType};
 
 // mod memory_manager;
 // pub use memory_manager::MemoryManager;
