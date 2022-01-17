@@ -1,4 +1,43 @@
-use crate::allocator::{PhysAddr, VirtAddr};
+use crate::{
+    allocator::{PhysAddr, VirtAddr},
+    println,
+};
+
+use kernel_macros::bit_field_accessors;
+
+use core::arch::asm;
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PageTableEntry(u64);
+
+impl PageTableEntry {
+    bit_field_accessors! {
+        present 0
+        writable 1
+        user_accessible 2
+        write_through_caching 3
+        disable_cache 4
+        accessed 5
+        dirty 6
+        huge_page 7
+        global 8
+        is_reserved 9
+        no_execute 63
+    }
+
+    fn get_address(&self) -> u64 {
+        let x = self.0 & 0b0000000000001111111111111111111111111111111111111111000000000000;
+        assert!(x < 2u64.pow(52));
+        x
+    }
+}
+
+#[derive(Debug)]
+#[repr(align(4096), C)]
+pub struct PageTable {
+    entries: [PageTableEntry; 512],
+}
 
 pub struct MemoryManager {}
 
@@ -7,41 +46,36 @@ impl MemoryManager {
         Self {}
     }
 
-    pub unsafe fn init() {}
+    pub unsafe fn init(&self) {}
 
-    pub fn virt_to_phys(&self, addr: VirtAddr) -> Option<usize> {
+    pub fn uwu(&self) {
+        let x: u64;
+        unsafe { asm!("mov {}, cr3", out(reg) x) }
+        let x = x as *const PageTable;
+        let mut table = unsafe { &*x };
+        for _ in (1..=3).rev() {
+            table = unsafe { &*(table.entries[0].get_address() as *const PageTable) };
+        }
+        println!(
+            "{:#?}\nPhysical address: 0x{:x}",
+            table,
+            table.entries[0].get_address()
+        );
+        println!("Done")
+    }
+
+    pub fn virt_to_phys(&self, _addr: VirtAddr) -> Option<usize> {
         // TODO: Setup Virtual to Physical translation
         None
     }
 
     /// Source and destination must be page-aligned
-    pub fn map(&self, src: PhysAddr, dest: VirtAddr, flags: u64) -> Result<(), ()> {
-        // TODO: Setup virtual mapping
-        let pdindex = dest.0 >> 22;
-        let ptindex = dest.0 >> 12 & 0x03FF;
-
-        // let pd = unsafe { 0xFFFFF000 as *mut _ };
-        let pt = unsafe { 0xFFC00000 } + (0x400 * pdindex);
-
-        unsafe {
-            core::ptr::write_volatile(
-                (pt + ptindex) as *mut u64,
-                (src.0 as u64 | (flags & 0xFFF) | 0x01),
-            )
-        }
-        Ok(())
+    pub fn map(&self, _src: PhysAddr, _dest: VirtAddr, _flags: u64) -> Result<(), ()> {
+        Err(())
     }
 
     /// This will fail if the address isn't mapped to any page
-    pub fn unmap(&self, addr: VirtAddr) -> Result<(), ()> {
-        // TODO: Setup virtual unmapping
-        let pdindex = addr.0 >> 22;
-        let ptindex = addr.0 >> 12 & 0x03FF;
-
-        // let pd = unsafe { 0xFFFFF000 };
-        let pt = unsafe { 0xFFC00000 } + (0x400 * pdindex);
-
-        unsafe { core::ptr::write_volatile((pt + ptindex) as *mut u64, 0) }
-        Ok(())
+    pub fn unmap(&self, _addr: VirtAddr) -> Result<(), ()> {
+        Err(())
     }
 }

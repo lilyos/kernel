@@ -6,7 +6,9 @@
     lang_items,
     asm_sym,
     naked_functions,
-    asm_const
+    asm_const,
+    const_slice_from_raw_parts,
+    const_mut_refs
 )]
 #![feature(default_alloc_error_handler)]
 
@@ -20,7 +22,7 @@ static ALLOCATOR: allocator::HeapAllocator = allocator::HeapAllocator::new();
 
 static PAGE_ALLOCATOR: allocator::PageAllocator = allocator::PageAllocator::new();
 
-// static MEMORY_MANAGER: allocator::MemoryManager = allocator::MemoryManager::new();
+static MEMORY_MANAGER: allocator::MemoryManager = allocator::MemoryManager::new();
 
 use crate::peripherals::uart::{print, println};
 
@@ -65,15 +67,25 @@ extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
 
     println!("Initialized page allocator");
 
-    let page_addr = PAGE_ALLOCATOR
-        .allocate(allocator::PageType::Normal, 2)
-        .unwrap()
-        .0;
+    let (heap, heap_size) = PAGE_ALLOCATOR
+        .alloc(allocator::PageSize::Normal, 2)
+        .unwrap();
+
+    let (heap_s, heap_s_size) = PAGE_ALLOCATOR
+        .alloc(allocator::PageSize::Normal, 1)
+        .unwrap();
 
     println!("Allocated pages");
 
-    unsafe { ALLOCATOR.init(page_addr, 4096 * 2) };
+    // MEMORY_MANAGER.uwu();
+    unsafe {
+        ALLOCATOR
+            .init(heap, heap_size, heap_s, heap_s_size)
+            .unwrap()
+    };
+    println!("Initialized Heap Allocator");
     ALLOCATOR.display();
+    println!("Finished display");
 
     {
         let mut uwu = alloc::vec::Vec::new();

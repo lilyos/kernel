@@ -1,19 +1,20 @@
+// mod heap_o;
+// pub use heap_o::HeapAllocator;
+
 mod heap;
 pub use heap::HeapAllocator;
 
 mod paging;
-pub use paging::{PageAllocator, PageType};
+pub use paging::{PageAllocator, PageSize};
 
-// mod memory_manager;
-// pub use memory_manager::MemoryManager;
+mod memory_manager;
+pub use memory_manager::MemoryManager;
 
 mod uefi_interop;
 pub use uefi_interop::{MemoryDescriptor, MemoryEntry, MemoryKind, MemoryType};
 
-pub struct PhysAddr(pub usize);
-pub struct VirtAddr(pub usize);
+mod utilities;
+pub use utilities::{align, Address, AllocatorError, PhysAddr, VirtAddr};
 
-/// Must be power of 2
-pub fn align(addr: usize, align: usize) -> usize {
-    (addr + align - 1) & !(align - 1)
-}
+mod growable_slice;
+pub use growable_slice::GrowableSlice;

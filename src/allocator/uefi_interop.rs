@@ -1,6 +1,6 @@
 use super::align;
 
-#[allow(non_camel_case_types, dead_code)]
+#[allow(non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MemoryType {
@@ -73,7 +73,7 @@ pub struct MemoryEntry {
     pub start: usize,
     pub end: usize,
     pub kind: MemoryKind,
-    ok: MemoryType,
+    _ok: MemoryType,
 }
 
 impl From<&MemoryDescriptor> for MemoryEntry {
@@ -96,7 +96,7 @@ impl From<&MemoryDescriptor> for MemoryEntry {
             } else {
                 MemoryKind::Reserve
             },
-            ok: memd.ty,
+            _ok: memd.ty,
         }
     }
 }
