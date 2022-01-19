@@ -11,6 +11,7 @@ use core::{
 
 static DIV: &str = "================================================================";
 
+#[repr(transparent)]
 pub struct PageAllocation {
     pub pages: usize,
 }
@@ -160,20 +161,26 @@ impl PageAllocator {
             let mut iter = FreePageIter::new(current);
             for page in iter {
                 if let Some(found) = Self::get_contiguous(&page, count) {
+                    if found.start() as usize % 4096 != 0 {
+                        continue;
+                    }
+
                     let p_alloc = PageAllocation::new(count);
 
                     if !page.last.is_null() {
                         let mut last = unsafe { &mut *found.last };
-                        last.next = found.next;
+                        last.next = page.next;
                     }
 
                     let dst = page.start() as *mut PageAllocation;
                     unsafe { dst.write(p_alloc) };
 
+                    println!("Page Allocation: {:?}", dst);
+
+                    assert!(dst as usize % 4096 == 0);
+
                     return Ok((
-                        unsafe {
-                            found.start().add(core::mem::size_of::<PageAllocation>()) as *mut u8
-                        },
+                        unsafe { dst.add(1) as *mut u8 },
                         4096 * count - core::mem::size_of::<PageAllocation>(),
                     ));
                 }
@@ -210,8 +217,11 @@ impl PageAllocator {
                 let dst = page.start() as *mut PageAllocation;
                 unsafe { dst.write(p_alloc) };
 
+                println!("Page Allocation: {:?}", dst);
+                assert!(dst as usize % 4096 == 0); // This works
+
                 return Ok((
-                    unsafe { page.start().add(core::mem::size_of::<PageAllocation>()) as *mut u8 },
+                    unsafe { dst.add(1) as *mut u8 },
                     4096 - core::mem::size_of::<PageAllocation>(),
                 ));
             }
@@ -265,13 +275,16 @@ impl PageAllocator {
     }
 
     pub fn add_free_page(&self, addr: *mut u8) {
-        assert!(addr as usize % 4096 == 0);
-        assert!(addr as usize % core::mem::align_of::<FreePage>() == 0);
-
         let mut head = self.head.lock();
 
+        assert!(
+            addr as usize % 4096 == 0
+                || unsafe { (addr as *mut PageAllocation).sub(1) as usize % 4096 == 0 }
+        );
+
         if addr as usize % 4096 == 0 {
-            println!("Allocating new page");
+            assert!(addr as usize % core::mem::align_of::<FreePage>() == 0);
+            println!("Allocating new page: {:?}", addr);
             let mut new = FreePage::new(true);
             new.last = head.start() as *mut FreePage;
             new.next = head.next;
@@ -282,16 +295,18 @@ impl PageAllocator {
             head.next = ptr;
         } else {
             println!("Allocating previous area");
-            let p_alloc = unsafe {
-                let size_i: isize = core::mem::size_of::<PageAllocation>().try_into().unwrap();
-                &*(addr.offset(-size_i) as *const PageAllocation)
-            };
+            let p_alloc = unsafe { &*((addr as *const PageAllocation).sub(1)) };
 
-            for i in (p_alloc.start() as usize..unsafe {
-                p_alloc.start().offset(p_alloc.pages as isize * 4096) as usize
-            })
+            let p_base = p_alloc.start() as *mut u8;
+            assert!(p_base as usize % 4096 == 0);
+
+            for i in (p_base as usize..unsafe { p_base.add(p_alloc.pages * 4096) as usize })
                 .step_by(4096)
             {
+                println!(
+                    "Adding free page at {:?}, {} total",
+                    i as *mut u8, p_alloc.pages
+                );
                 let mut new = FreePage::new(true);
                 new.last = head.start() as *mut FreePage;
                 new.next = head.next;

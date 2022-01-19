@@ -75,6 +75,26 @@ extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
         .alloc(allocator::PageSize::Normal, 1)
         .unwrap();
 
+    let (test, _) = PAGE_ALLOCATOR
+        .alloc(allocator::PageSize::Normal, 1)
+        .unwrap();
+
+    println!(
+        "Allocated test page: {:?}, actual address: {:?}",
+        test,
+        unsafe { test.sub(core::mem::size_of::<usize>()) }
+    );
+
+    PAGE_ALLOCATOR.dealloc(test);
+
+    println!("Deallocated test page: {:?}", test);
+
+    let (test2, _) = PAGE_ALLOCATOR.alloc_specific_address(test).unwrap();
+    println!("(Tried to) Allocate specific address: {:?}", test2);
+    assert!(test == test2);
+    println!("Allocating specific address worked");
+    PAGE_ALLOCATOR.dealloc(test2);
+
     println!("Allocated pages");
 
     // MEMORY_MANAGER.uwu();

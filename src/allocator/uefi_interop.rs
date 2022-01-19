@@ -78,12 +78,13 @@ pub struct MemoryEntry {
 
 impl From<&MemoryDescriptor> for MemoryEntry {
     fn from(memd: &MemoryDescriptor) -> Self {
+        let start = align(memd.phys_start as usize, 4096);
+        assert!(start % 4096 == 0);
+        let end = align((memd.phys_start + memd.page_count * 4096) as usize, 4096);
+        assert!(end % 4096 == 0);
         MemoryEntry {
-            start: align(memd.phys_start as usize, 4096),
-            end: align(
-                (memd.phys_start + memd.page_count * 4096 - 1) as usize,
-                4096,
-            ),
+            start,
+            end,
             kind: if memd.ty == MemoryType::BOOT_SERVICES_CODE
                 || memd.ty == MemoryType::BOOT_SERVICES_DATA
                 || memd.ty == MemoryType::CONVENTIONAL

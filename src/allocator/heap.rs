@@ -52,6 +52,7 @@ impl HeapAllocator {
             println!("Done; Adding new region");
         }
         self.add_free_region(start, size)?;
+        println!("Returning from init");
         Ok(())
     }
 
@@ -61,7 +62,7 @@ impl HeapAllocator {
         let items = &mut *self.storage.lock();
         println!("Pushing");
         let v = items.push(FreeRegion::new(addr, size));
-        println!("Returned");
+        println!("Returned from pushing");
         v
     }
 
