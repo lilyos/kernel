@@ -1,7 +1,7 @@
 use core::ptr::{read_volatile, write_volatile};
 
 struct Gpio {
-    base: u32;
+    base: u32,
 }
 
 impl Gpio {
@@ -14,9 +14,7 @@ impl Gpio {
 
     pub fn read<T>(&mut self, address: *const T) -> T {
         self.init();
-        unsafe {
-            read_volatile(address)
-        }
+        unsafe { read_volatile(address) }
     }
 
     pub fn pi_version() -> u32 {

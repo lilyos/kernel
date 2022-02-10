@@ -5,6 +5,7 @@ use crate::{
     traits::Init,
 };
 
+#[derive(Debug)]
 pub struct Singleton<T: Init> {
     ready: AtomicBool,
     _data: Mutex<T>,

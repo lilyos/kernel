@@ -8,42 +8,54 @@
     naked_functions,
     asm_const,
     const_slice_from_raw_parts,
-    const_mut_refs
+    const_mut_refs,
+    associated_type_bounds,
+    generic_associated_types,
+    associated_type_defaults
 )]
 #![feature(default_alloc_error_handler)]
+#![warn(missing_docs)]
 
-mod allocator;
+//! This is the Lotus kernel
+
+mod collections;
+mod memory;
+use memory::{
+    allocators::{HeapAllocator, MemoryDescriptor, PageAllocator, PhysicalAllocator},
+    paging::{MemoryManager, MemoryManagerImpl},
+};
+
 mod peripherals;
 mod sync;
 mod traits;
 
+/// The Heap Allocator
 #[global_allocator]
-static ALLOCATOR: allocator::HeapAllocator = allocator::HeapAllocator::new();
+static ALLOCATOR: HeapAllocator = HeapAllocator::new();
 
-static PAGE_ALLOCATOR: allocator::PageAllocator = allocator::PageAllocator::new();
+/// The Physical Memory Allocator
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+static PHYSICAL_ALLOCATOR: PhysicalAllocator<PageAllocator> =
+    PhysicalAllocator::new(PageAllocator::new());
 
-static MEMORY_MANAGER: allocator::MemoryManager = allocator::MemoryManager::new();
+/// The Virtual Memory manager
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
+    MemoryManager::new(MemoryManagerImpl::new());
 
-use crate::peripherals::uart::{print, println};
+use crate::{
+    memory::paging::{memory_manager::Table, Flags, Page},
+    peripherals::uart::{print, println},
+};
 
 use core::arch::asm;
 
 extern crate alloc;
 
+/// The kernel entrypoint, gets the memory descriptors then passes them to kernel main
 #[no_mangle]
-#[naked]
 pub extern "C" fn _start() -> ! {
-    unsafe {
-        asm!(
-            "jmp {}",
-            sym _start2,
-            options(noreturn),
-        )
-    }
-}
-
-extern "C" fn _start2() -> ! {
-    let mmap: *mut allocator::MemoryDescriptor;
+    let mmap: *mut MemoryDescriptor;
     let len: usize;
     unsafe {
         asm!(
@@ -51,76 +63,73 @@ extern "C" fn _start2() -> ! {
             "mov {}, r10",
             out(reg) mmap,
             out(reg) len,
-        )
+        );
     }
     kentry(mmap, len)
 }
 
+/// The kernel main loop
 #[no_mangle]
-extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
+extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
     println!("`Println!` functioning!");
 
     let mmap = unsafe { core::slice::from_raw_parts(ptr, len) };
     // println!("MMAP: {:#?}", mmap);
 
-    unsafe { PAGE_ALLOCATOR.init(&mmap[0..3]) };
+    unsafe { PHYSICAL_ALLOCATOR.init(mmap).unwrap() };
+
+    // PHYSICAL_ALLOCATOR.get_buddies();
 
     println!("Initialized page allocator");
 
-    let (heap, heap_size) = PAGE_ALLOCATOR
-        .alloc(allocator::PageSize::Normal, 2)
-        .unwrap();
-
-    let (heap_s, heap_s_size) = PAGE_ALLOCATOR
-        .alloc(allocator::PageSize::Normal, 1)
-        .unwrap();
-
-    let (test, _) = PAGE_ALLOCATOR
-        .alloc(allocator::PageSize::Normal, 1)
-        .unwrap();
-
-    println!(
-        "Allocated test page: {:?}, actual address: {:?}",
-        test,
-        unsafe { test.sub(core::mem::size_of::<usize>()) }
-    );
-
-    PAGE_ALLOCATOR.dealloc(test);
-
-    println!("Deallocated test page: {:?}", test);
-
-    let (test2, _) = PAGE_ALLOCATOR.alloc_specific_address(test).unwrap();
-    println!("(Tried to) Allocate specific address: {:?}", test2);
-    assert!(test == test2);
-    println!("Allocating specific address worked");
-    PAGE_ALLOCATOR.dealloc(test2);
+    let heap_size = 8;
+    let (heap, _heap_block) = PHYSICAL_ALLOCATOR.alloc(heap_size).unwrap();
+    println!("Heap Alloc: 0x{:x}", heap as usize);
 
     println!("Allocated pages");
 
-    // MEMORY_MANAGER.uwu();
-    unsafe {
-        ALLOCATOR
-            .init(heap, heap_size, heap_s, heap_s_size)
-            .unwrap()
-    };
+    unsafe { ALLOCATOR.init(heap, heap_size * 1024).unwrap() };
     println!("Initialized Heap Allocator");
-    ALLOCATOR.display();
-    println!("Finished display");
 
     {
         let mut uwu = alloc::vec::Vec::new();
         let mut owo = alloc::vec::Vec::new();
         uwu.push(1);
         owo.push(1);
-        println!("Pushed 1 to vec\n{:#?}\n{:#?}", uwu, owo);
-        println!("Pushing a lot");
         for i in 1..101 {
             uwu.push(i);
             owo.push(i);
-            println!("Pushed {}", i);
         }
-        println!("Dropping");
     }
+
+    println!("Well, let's try to make some mappings :v");
+
+    let mut pages: [*mut Table; 5] = [core::ptr::null_mut(); 5];
+
+    for i in 0..5 {
+        pages[i] = PHYSICAL_ALLOCATOR.alloc(4).unwrap().0 as *mut Table;
+    }
+
+    for i in 0..3 {
+        let page = unsafe { &mut *pages[i] };
+        *page = Table::new();
+        page[i] = Page::with_address(pages[i + 1] as *mut u8);
+        page[i].flags_mut().set_present(true);
+        page[i].flags_mut().set_writable(true);
+    }
+
+    let mut p4 = unsafe { &mut *pages[0] };
+    let mut p3 = unsafe { &mut *(p4[0].address() as *mut Table) };
+    let mut p2 = unsafe { &mut *(p3[0].address() as *mut Table) };
+
+    println!("{} {} {}", p4, p3, p2);
+
+    p2[0] = Page::with_address(pages[3] as *mut u8);
+    p2[1] = Page::with_address(pages[4] as *mut u8);
+
+    unsafe { asm!("mov cr3, {}", in(reg) pages[0]) }
+
+    unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
 
     let mutex = sync::Mutex::new(9);
     {
@@ -130,8 +139,6 @@ extern "C" fn kentry(ptr: *mut allocator::MemoryDescriptor, len: usize) -> ! {
         assert!(*lock == 9)
     }
     println!("Dropped mutex!");
-
-    // println!("uh {:#?}", mmap);
 
     println!("Beginning echo...");
 

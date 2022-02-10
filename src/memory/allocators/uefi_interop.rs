@@ -79,9 +79,31 @@ pub struct MemoryEntry {
 impl From<&MemoryDescriptor> for MemoryEntry {
     fn from(memd: &MemoryDescriptor) -> Self {
         let start = align(memd.phys_start as usize, 4096);
-        assert!(start % 4096 == 0);
-        let end = align((memd.phys_start + memd.page_count * 4096) as usize, 4096);
-        assert!(end % 4096 == 0);
+        let end = start + (4096 * memd.page_count as usize) - 1;
+        MemoryEntry {
+            start,
+            end,
+            kind: if memd.ty == MemoryType::BOOT_SERVICES_CODE
+                || memd.ty == MemoryType::BOOT_SERVICES_DATA
+                || memd.ty == MemoryType::CONVENTIONAL
+            {
+                MemoryKind::Reclaim
+            } else if memd.ty == MemoryType::ACPI_RECLAIM {
+                MemoryKind::ACPIReclaim
+            } else if memd.ty == MemoryType::ACPI_NON_VOLATILE {
+                MemoryKind::ACPINonVolatile
+            } else {
+                MemoryKind::Reserve
+            },
+            _ok: memd.ty,
+        }
+    }
+}
+
+impl From<MemoryDescriptor> for MemoryEntry {
+    fn from(memd: MemoryDescriptor) -> Self {
+        let start = align(memd.phys_start as usize, 4096);
+        let end = start + (4096 * memd.page_count as usize) - 1;
         MemoryEntry {
             start,
             end,

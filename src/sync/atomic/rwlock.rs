@@ -1,10 +1,10 @@
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Debug)]
-pub struct RWLock<T: ?Sized> {
-    write_lock: AtomicBool,
+pub struct RwLock<T: ?Sized> {
+    write_lock: UnsafeCell<bool>,
     read_locks: AtomicU32,
     data: UnsafeCell<T>,
 }
@@ -12,19 +12,28 @@ pub struct RWLock<T: ?Sized> {
 // Write handle
 #[derive(Debug)]
 pub struct WriteLockGuard<'a, T> {
-    _data: &'a RWLock<T>,
+    _data: &'a RwLock<T>,
 }
 
 // Read handle
 #[derive(Debug)]
 pub struct ReadLockGuard<'a, T> {
-    _data: &'a RWLock<T>,
+    _data: &'a RwLock<T>,
 }
 
-impl<T> RWLock<T> {
+impl<T> RwLock<T> {
+    const fn get_write_lock(&self) -> bool {
+        unsafe { *self.write_lock.get() }
+    }
+
+    const fn set_write_lock(&self, val: bool) {
+        let inner = unsafe { &mut *self.write_lock.get() };
+        *inner = val;
+    }
+
     pub const fn new(value: T) -> Self {
-        RWLock {
-            write_lock: AtomicBool::new(false),
+        RwLock {
+            write_lock: UnsafeCell::new(false),
             read_locks: AtomicU32::new(0),
             data: UnsafeCell::new(value),
         }
@@ -38,7 +47,8 @@ impl<T> RWLock<T> {
         }
 
         // Set status to locked
-        if !self.write_lock.swap(true, Ordering::Acquire) {
+        if !self.get_write_lock() {
+            self.set_write_lock(true);
             Some(WriteLockGuard { _data: self })
         } else {
             None
@@ -56,7 +66,7 @@ impl<T> RWLock<T> {
 
     // Check if data is available to read, returning none if not
     pub fn try_read(&self) -> Option<ReadLockGuard<T>> {
-        if self.write_lock.load(Ordering::Relaxed) {
+        if self.get_write_lock() {
             None
         } else {
             self.read_locks.fetch_add(1, Ordering::Acquire);
@@ -89,7 +99,7 @@ impl<T> RWLock<T> {
 
 impl<T> Drop for WriteLockGuard<'_, T> {
     fn drop(&mut self) {
-        self._data.write_lock.store(false, Ordering::Release);
+        self._data.set_write_lock(false);
     }
 }
 
@@ -121,4 +131,4 @@ impl<T> Deref for ReadLockGuard<'_, T> {
     }
 }
 
-unsafe impl<T> Sync for RWLock<T> {}
+unsafe impl<T> Sync for RwLock<T> {}
