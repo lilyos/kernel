@@ -1,46 +1,146 @@
 use core::{
-    fmt::Display,
-    ops::{Index, IndexMut},
+    arch::asm,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
 };
 
-use super::{Frame, Page, VirtualAddress, VirtualMemoryManager};
+use crate::PHYSICAL_ALLOCATOR;
+
+use super::{
+    Flags, Frame, Page, PhysicalAddress, VirtualAddress, VirtualMemoryManager,
+    VirtualMemoryManagerError,
+};
 
 pub struct MemoryManagerImpl {}
 
-pub struct Table {
-    data: [Page; 512],
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct PageTableEntry<L> {
+    pub data: Flags,
+    level: PhantomData<L>,
 }
 
-impl Index<usize> for Table {
-    type Output = Page;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.data[index]
-    }
-}
-
-impl IndexMut<usize> for Table {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.data[index]
-    }
-}
-
-impl Display for Table {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        for i in self.data.iter() {
-            if !i.address().is_null() {
-                write!(f, "{:?}", i)?;
-            }
+impl<L> PageTableEntry<L> {
+    pub fn get_item(&self) -> Option<&L> {
+        if self.data.unused() || !self.data.get_present() {
+            None
+        } else {
+            Some(unsafe { &*(self.data.get_address() as *const L) })
         }
-        Ok(())
+    }
+
+    pub fn get_item_mut(&mut self) -> Option<&mut L> {
+        if self.data.unused() || !self.data.get_present() {
+            None
+        } else {
+            Some(unsafe { &mut *(self.data.get_address() as *mut L) })
+        }
     }
 }
 
-impl Table {
-    pub fn new() -> Self {
-        Self {
-            data: [Page::with_address(0 as *mut u8); 512],
+impl<L> Deref for PageTableEntry<L> {
+    type Target = L;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self.data.get_address() as *mut L) }
+    }
+}
+
+impl<L> DerefMut for PageTableEntry<L> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self.data.get_address() as *mut L) }
+    }
+}
+
+#[derive(Debug)]
+#[repr(align(4096), C)]
+pub struct TableLevel4 {
+    pub data: [PageTableEntry<TableLevel3>; 512],
+}
+
+impl TableLevel4 {
+    pub fn sub_table(&mut self, index: usize) -> Option<&mut TableLevel3> {
+        let entry = &mut self.data[index];
+        entry.get_item_mut()
+    }
+
+    pub fn sub_table_create(&mut self, index: usize) -> &mut TableLevel3 {
+        let entry = &mut self.data[index];
+        if entry.data.unused() {
+            let (ptr, _) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
+            entry.data = Flags::new(ptr as u64, Flags::PRESENT | Flags::WRITABLE);
         }
+        entry.get_item_mut().unwrap()
+    }
+}
+
+#[derive(Debug)]
+#[repr(align(4096), C)]
+pub struct TableLevel3 {
+    pub data: [PageTableEntry<TableLevel2>; 512],
+}
+
+impl TableLevel3 {
+    pub fn sub_table(&mut self, index: usize) -> Option<&mut TableLevel2> {
+        let entry = &mut self.data[index];
+        entry.get_item_mut()
+    }
+
+    pub fn sub_table_create(&mut self, index: usize) -> &mut TableLevel2 {
+        let entry = &mut self.data[index];
+        if entry.data.unused() {
+            let (ptr, _) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
+            entry.data = Flags::new(ptr as u64, Flags::PRESENT | Flags::WRITABLE);
+        }
+        entry.get_item_mut().unwrap()
+    }
+}
+
+#[derive(Debug)]
+#[repr(align(4096), C)]
+pub struct TableLevel2 {
+    pub data: [PageTableEntry<TableLevel1>; 512],
+}
+
+impl TableLevel2 {
+    pub fn sub_table(&mut self, index: usize) -> Option<&mut TableLevel1> {
+        let entry = &mut self.data[index];
+        entry.get_item_mut()
+    }
+
+    pub fn sub_table_create(&mut self, index: usize) -> &mut TableLevel1 {
+        let mut entry = &mut self.data[index];
+        if entry.data.unused() {
+            let (ptr, _) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
+            entry.data = Flags::new(ptr as u64, Flags::PRESENT | Flags::WRITABLE);
+        }
+        entry.get_item_mut().unwrap()
+    }
+}
+
+#[derive(Debug)]
+#[repr(align(4096), C)]
+pub struct TableLevel1 {
+    pub data: [Frame; 512],
+}
+impl TableLevel1 {
+    pub fn frame(&mut self, index: usize) -> Option<&mut Frame> {
+        let entry = &mut self.data[index];
+        if entry.flags().unused() {
+            None
+        } else {
+            Some(entry)
+        }
+    }
+
+    pub fn frame_create(&mut self, index: usize) -> &mut Frame {
+        let entry = &mut self.data[index];
+        if entry.flags().unused() {
+            let (ptr, _) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
+            let new: u64 = Flags::new(ptr as u64, Flags::PRESENT | Flags::WRITABLE).into();
+            *entry = new.into();
+        }
+        entry
     }
 }
 
@@ -57,18 +157,28 @@ impl VirtualMemoryManager for MemoryManagerImpl {
         &self,
         mmap: &[crate::memory::allocators::MemoryDescriptor],
     ) -> Self::VMMResult<()> {
-        todo!()
+        Ok(())
     }
 
-    fn virtual_to_physical(&self, src: VirtualAddress) -> Option<super::PhysicalAddress> {
-        todo!()
+    fn virtual_to_physical(&self, src: VirtualAddress) -> Option<PhysicalAddress> {
+        None
     }
 
     fn map(&self, src: Frame, dst: Page, flags: u64) -> Self::VMMResult<()> {
-        todo!()
+        let cr3: u64;
+        unsafe {
+            asm!("mov {}, cr3", out(reg) cr3);
+        }
+        let p4 = unsafe { &mut *(cr3 as *mut TableLevel4) };
+        let p3 = p4.sub_table_create(dst.p4_index());
+        let p2 = p3.sub_table_create(dst.p3_index());
+        let p1 = p2.sub_table_create(dst.p2_index());
+        let mut frame = p1.frame_create(dst.p1_index());
+        frame.inner = Flags::new(src.address() as u64, Flags::PRESENT | Flags::WRITABLE);
+        Ok(())
     }
 
     fn unmap(&self, src: Page) -> Self::VMMResult<()> {
-        todo!()
+        Err(VirtualMemoryManagerError::NotImplemented)
     }
 }

@@ -44,7 +44,7 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
     MemoryManager::new(MemoryManagerImpl::new());
 
 use crate::{
-    memory::paging::{memory_manager::Table, Flags, Page},
+    memory::paging::{Flags, Frame, Page},
     peripherals::uart::{print, println},
 };
 
@@ -104,32 +104,19 @@ extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
 
     println!("Well, let's try to make some mappings :v");
 
-    let mut pages: [*mut Table; 5] = [core::ptr::null_mut(); 5];
-
-    for i in 0..5 {
-        pages[i] = PHYSICAL_ALLOCATOR.alloc(4).unwrap().0 as *mut Table;
-    }
-
-    for i in 0..3 {
-        let page = unsafe { &mut *pages[i] };
-        *page = Table::new();
-        page[i] = Page::with_address(pages[i + 1] as *mut u8);
-        page[i].flags_mut().set_present(true);
-        page[i].flags_mut().set_writable(true);
-    }
-
-    let mut p4 = unsafe { &mut *pages[0] };
-    let mut p3 = unsafe { &mut *(p4[0].address() as *mut Table) };
-    let mut p2 = unsafe { &mut *(p3[0].address() as *mut Table) };
-
-    println!("{} {} {}", p4, p3, p2);
-
-    p2[0] = Page::with_address(pages[3] as *mut u8);
-    p2[1] = Page::with_address(pages[4] as *mut u8);
-
-    unsafe { asm!("mov cr3, {}", in(reg) pages[0]) }
-
     unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
+
+    let (ptr, size) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
+    unsafe { ptr.write(4) }
+
+    MEMORY_MANAGER
+        .map(
+            Frame::with_address(ptr),
+            0xDEADBEEFu64.into(),
+            Flags::WRITABLE | Flags::PRESENT,
+        )
+        .unwrap();
+    println!("{}", unsafe { *(0xDEADBEEF as *mut u8) });
 
     let mutex = sync::Mutex::new(9);
     {

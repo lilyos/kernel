@@ -9,7 +9,10 @@ pub type PhysicalAddress = *mut u8;
 
 /// Errors for the Virtual Memory Manager
 #[derive(Debug)]
-pub enum VirtualMemoryManagerError {}
+pub enum VirtualMemoryManagerError {
+    /// The requested feature isn't implemented
+    NotImplemented,
+}
 
 pub trait VirtualMemoryManager {
     /// Result type for the virtual memory manager
@@ -118,9 +121,38 @@ impl Flags {
         Self(flags | address.into())
     }
 
+    pub fn unused(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Set the inner value to the supplied one
+    pub fn set(&mut self, val: u64) {
+        self.0 = val
+    }
+
     /// Get the address in the flags
     pub fn get_address(&self) -> u64 {
         self.0 & 0b0000000000001111111111111111111111111111111111111111000000000000
+    }
+}
+
+impl From<Flags> for u64 {
+    fn from(item: Flags) -> Self {
+        item.0
+    }
+}
+
+impl From<u64> for Flags {
+    fn from(item: u64) -> Self {
+        Self(item)
+    }
+}
+
+impl BitOr for Flags {
+    type Output = u64;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self.0 | rhs.0
     }
 }
 
@@ -138,10 +170,22 @@ impl BitOrAssign for Flags {
     }
 }
 
+impl BitOrAssign<u64> for Flags {
+    fn bitor_assign(&mut self, rhs: u64) {
+        self.0 |= rhs
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C, align(4096))]
 pub struct Frame {
-    inner: Flags,
+    pub inner: Flags,
+}
+
+impl From<u64> for Frame {
+    fn from(item: u64) -> Self {
+        Self { inner: 0.into() }
+    }
 }
 
 impl Frame {
@@ -163,25 +207,41 @@ impl Frame {
 #[derive(Debug, Clone, Copy)]
 #[repr(C, align(4096))]
 pub struct Page {
-    inner: Flags,
+    pub inner: Flags,
+}
+
+impl From<u64> for Page {
+    fn from(item: u64) -> Self {
+        Self { inner: item.into() }
+    }
 }
 
 impl Page {
-    pub fn with_address(addr: VirtualAddress) -> Self {
-        Self {
-            inner: Flags::new(addr as u64, 0),
-        }
-    }
-
     pub fn address(&self) -> *mut u8 {
         self.flags().get_address() as *mut u8
     }
 
-    pub fn flags(&self) -> Flags {
-        self.inner
+    pub fn flags(&self) -> &Flags {
+        &self.inner
     }
 
     pub fn flags_mut(&mut self) -> &mut Flags {
         &mut self.inner
+    }
+
+    pub fn p4_index(&self) -> usize {
+        (self.inner.0 as usize >> 27) & 0o777
+    }
+
+    pub fn p3_index(&self) -> usize {
+        (self.inner.0 as usize >> 18) & 0o777
+    }
+
+    pub fn p2_index(&self) -> usize {
+        (self.inner.0 as usize >> 9) & 0o777
+    }
+
+    pub fn p1_index(&self) -> usize {
+        (self.inner.0 as usize >> 0) & 0o777
     }
 }
