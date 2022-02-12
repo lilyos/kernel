@@ -1,8 +1,4 @@
-use core::{
-    arch::asm,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-};
+use core::{arch::asm, fmt::Display, marker::PhantomData};
 
 use crate::PHYSICAL_ALLOCATOR;
 
@@ -14,7 +10,7 @@ use super::{
 pub struct MemoryManagerImpl {}
 
 #[repr(transparent)]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PageTableEntry<L> {
     pub data: Flags,
     level: PhantomData<L>,
@@ -22,40 +18,50 @@ pub struct PageTableEntry<L> {
 
 impl<L> PageTableEntry<L> {
     pub fn get_item(&self) -> Option<&L> {
-        if self.data.unused() || !self.data.get_present() {
-            None
-        } else {
+        if !self.data.unused() && self.data.get_present() {
             Some(unsafe { &*(self.data.get_address() as *const L) })
+        } else {
+            None
         }
     }
 
     pub fn get_item_mut(&mut self) -> Option<&mut L> {
-        if self.data.unused() || !self.data.get_present() {
-            None
-        } else {
+        crate::peripherals::uart::println!(
+            "{}; {}",
+            self.data.unused() || !self.data.get_present(),
+            self.data.get_present()
+        );
+        if !self.data.unused() && self.data.get_present() {
+            crate::peripherals::uart::println!("owo");
             Some(unsafe { &mut *(self.data.get_address() as *mut L) })
+        } else {
+            None
         }
     }
 }
 
-impl<L> Deref for PageTableEntry<L> {
-    type Target = L;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*(self.data.get_address() as *mut L) }
+impl<L: Display> core::fmt::Debug for PageTableEntry<L> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(item) = self.get_item() {
+            write!(f, "{}", item)?;
+        }
+        Ok(())
     }
 }
 
-impl<L> DerefMut for PageTableEntry<L> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *(self.data.get_address() as *mut L) }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(align(4096), C)]
 pub struct TableLevel4 {
     pub data: [PageTableEntry<TableLevel3>; 512],
+}
+
+impl Display for TableLevel4 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for item in self.data.iter().filter_map(|i| i.get_item()) {
+            write!(f, "{}", item)?;
+        }
+        Ok(())
+    }
 }
 
 impl TableLevel4 {
@@ -74,10 +80,19 @@ impl TableLevel4 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(align(4096), C)]
 pub struct TableLevel3 {
     pub data: [PageTableEntry<TableLevel2>; 512],
+}
+
+impl Display for TableLevel3 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for item in self.data.iter().filter_map(|i| i.get_item()) {
+            write!(f, "{}", item)?;
+        }
+        Ok(())
+    }
 }
 
 impl TableLevel3 {
@@ -96,10 +111,19 @@ impl TableLevel3 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(align(4096), C)]
 pub struct TableLevel2 {
     pub data: [PageTableEntry<TableLevel1>; 512],
+}
+
+impl Display for TableLevel2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for item in self.data.iter().filter_map(|i| i.get_item()) {
+            write!(f, "{}", item)?;
+        }
+        Ok(())
+    }
 }
 
 impl TableLevel2 {
@@ -118,11 +142,21 @@ impl TableLevel2 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(align(4096), C)]
 pub struct TableLevel1 {
     pub data: [Frame; 512],
 }
+
+impl Display for TableLevel1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for item in self.data.iter().filter(|i| !i.inner.unused()) {
+            write!(f, "{:?}", item)?;
+        }
+        Ok(())
+    }
+}
+
 impl TableLevel1 {
     pub fn frame(&mut self, index: usize) -> Option<&mut Frame> {
         let entry = &mut self.data[index];

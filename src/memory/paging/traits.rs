@@ -97,28 +97,31 @@ where
 /// Flags for frames and pagess
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
-pub struct Flags(u64);
+pub struct Flags(pub u64);
 
 impl Flags {
+    const BIT_52_ADDRESS: u64 =
+        0b0000_0000_0000_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000;
+
     bit_field_accessors! {
-        present 0
-        writable 1
-        user_accessible 2
-        write_through_caching 3
-        disable_cache 4
-        accessed 5
-        dirty 6
-        huge_page 7
-        global 8
+        present 0;
+        writable 1;
+        user_accessible 2;
+        write_through_caching 3;
+        disable_cache 4;
+        accessed 5;
+        dirty 6;
+        huge_page 7;
+        global 8;
         // 9-11 Free Use
-        reserved 9
+        reserved 9;
         // 52-62 Free Use
-        no_execute 63
+        no_execute 63;
     }
 
     /// Create a new flags instance
     pub fn new<T: Into<u64>>(address: T, flags: u64) -> Self {
-        Self(flags | address.into())
+        Self(flags | (address.into() >> 12))
     }
 
     pub fn unused(&self) -> bool {
@@ -132,7 +135,11 @@ impl Flags {
 
     /// Get the address in the flags
     pub fn get_address(&self) -> u64 {
-        self.0 & 0b0000000000001111111111111111111111111111111111111111000000000000
+        self.0 & Self::BIT_52_ADDRESS
+    }
+
+    pub fn set_address(&mut self, address: *mut u8) {
+        self.0 |= address as u64 & Self::BIT_52_ADDRESS
     }
 }
 
@@ -184,7 +191,7 @@ pub struct Frame {
 
 impl From<u64> for Frame {
     fn from(item: u64) -> Self {
-        Self { inner: 0.into() }
+        Self { inner: item.into() }
     }
 }
 
@@ -242,6 +249,6 @@ impl Page {
     }
 
     pub fn p1_index(&self) -> usize {
-        (self.inner.0 as usize >> 0) & 0o777
+        (self.inner.0 as usize) & 0o777
     }
 }

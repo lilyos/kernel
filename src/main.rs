@@ -44,7 +44,7 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
     MemoryManager::new(MemoryManagerImpl::new());
 
 use crate::{
-    memory::paging::{Flags, Frame, Page},
+    memory::paging::{Flags, Frame},
     peripherals::uart::{print, println},
 };
 
@@ -108,15 +108,45 @@ extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
 
     let (ptr, size) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
     unsafe { ptr.write(4) }
+    println!("Wroet");
+    let to_thingy: usize = memory::allocators::align(0xdeadbeef, 4096);
+    assert!(ptr as usize % 4096 == 0 && to_thingy % 4096 == 0);
+    println!("0x{:x}", to_thingy);
 
+    println!("should fail here");
+
+    let mut cr0: u64;
+    unsafe { asm!("mov {}, cr0", out(reg) cr0) }
+    let mut cr0 = memory::paging::CR0(cr0);
+    println!(
+        "wp {}, pg {}, 0b{:b}",
+        cr0.get_write_protect(),
+        cr0.get_paging(),
+        cr0.0
+    );
+    // cr0.set_write_protect(false);
+    let cr0 = memory::paging::CR0(cr0.0 ^ memory::paging::CR0::WRITE_PROTECT);
+    println!(
+        "wp {}, pg {}, 0b{:b}",
+        cr0.get_write_protect(),
+        cr0.get_paging(),
+        cr0.0
+    );
+    unsafe { asm!("mov cr0, {}", in(reg) cr0.0) }
+
+    let cr3: u64;
+    unsafe { asm!("mov {}, cr3", out(reg) cr3) }
+    // let table4 = unsafe { &mut *(cr3 as *mut memory::paging::TableLevel4) };
+    // println!("{:?}", table4);
+    println!("made it past cr3 0x{:x}?", cr3);
     MEMORY_MANAGER
         .map(
             Frame::with_address(ptr),
-            0xDEADBEEFu64.into(),
+            (to_thingy as u64).into(),
             Flags::WRITABLE | Flags::PRESENT,
         )
         .unwrap();
-    println!("{}", unsafe { *(0xDEADBEEF as *mut u8) });
+    println!("{}", unsafe { *(to_thingy as *mut u8) });
 
     let mutex = sync::Mutex::new(9);
     {

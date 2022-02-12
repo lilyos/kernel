@@ -5,3 +5,6 @@ mod tables;
 
 mod traits;
 pub use traits::*;
+
+pub mod cpu;
+pub use cpu::*;
