@@ -44,7 +44,7 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
     MemoryManager::new(MemoryManagerImpl::new());
 
 use crate::{
-    memory::paging::{Flags, Frame},
+    memory::paging::{PageAlignedAddress, CR0},
     peripherals::uart::{print, println},
 };
 
@@ -103,50 +103,58 @@ extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
     }
 
     println!("Well, let's try to make some mappings :v");
+    let mut cr0 = CR0::get();
+    cr0.clear_write_protect();
+    cr0.update();
+    {
+        println!(
+            "CR0 has paging on: {}, write protect on: {}",
+            cr0.get_paging(),
+            cr0.get_write_protect()
+        );
+    }
+
+    let cr3: u64;
+    unsafe {
+        asm!("mov {}, cr3", out(reg) cr3);
+    }
+    println!("CR3: 0x{:x}", cr3);
+
+    let x = 9u64;
+    let x_ptr = &x as *const u64;
+    assert!(unsafe { *x_ptr } == x);
+
+    let x_got_ptr = MEMORY_MANAGER.virtual_to_physical(x_ptr as *mut u8);
+
+    println!(
+        "The actual pointer 0x{:x}, what we got: {:?}",
+        x_ptr as usize, x_got_ptr
+    );
+
+    assert!(x_ptr == x_got_ptr.unwrap() as *const u64);
+
+    println!("that was equal, so my virt to phys works ig :v");
 
     unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
 
-    let (ptr, size) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
-    unsafe { ptr.write(4) }
-    println!("Wroet");
-    let to_thingy: usize = memory::allocators::align(0xdeadbeef, 4096);
-    assert!(ptr as usize % 4096 == 0 && to_thingy % 4096 == 0);
-    println!("0x{:x}", to_thingy);
+    let (src, start) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
+    unsafe { src.write(4) }
+    println!("Wrote to address");
+
+    let dst: usize = memory::allocators::align(0xdeadbeef, 4096);
+    println!("0x{:x}", dst);
 
     println!("should fail here");
 
-    let mut cr0: u64;
-    unsafe { asm!("mov {}, cr0", out(reg) cr0) }
-    let mut cr0 = memory::paging::CR0(cr0);
-    println!(
-        "wp {}, pg {}, 0b{:b}",
-        cr0.get_write_protect(),
-        cr0.get_paging(),
-        cr0.0
-    );
-    // cr0.set_write_protect(false);
-    let cr0 = memory::paging::CR0(cr0.0 ^ memory::paging::CR0::WRITE_PROTECT);
-    println!(
-        "wp {}, pg {}, 0b{:b}",
-        cr0.get_write_protect(),
-        cr0.get_paging(),
-        cr0.0
-    );
-    unsafe { asm!("mov cr0, {}", in(reg) cr0.0) }
-
-    let cr3: u64;
-    unsafe { asm!("mov {}, cr3", out(reg) cr3) }
-    // let table4 = unsafe { &mut *(cr3 as *mut memory::paging::TableLevel4) };
-    // println!("{:?}", table4);
-    println!("made it past cr3 0x{:x}?", cr3);
     MEMORY_MANAGER
         .map(
-            Frame::with_address(ptr),
-            (to_thingy as u64).into(),
-            Flags::WRITABLE | Flags::PRESENT,
+            PageAlignedAddress::new(src).unwrap(),
+            PageAlignedAddress::new(dst as *mut u8).unwrap(),
+            0,
         )
         .unwrap();
-    println!("{}", unsafe { *(to_thingy as *mut u8) });
+    println!("{}", unsafe { *(dst as *mut u8) });
+    PHYSICAL_ALLOCATOR.dealloc(start, 4).unwrap();
 
     let mutex = sync::Mutex::new(9);
     {

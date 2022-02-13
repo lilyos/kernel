@@ -63,23 +63,39 @@ where
     ///
     /// # Arguments
     /// * `mmap` - Slice of memory descriptors
+    ///
+    /// # Example
+    /// ```
+    /// // Assume mmap is a slice of MemoryDescriptor
+    /// let alloc = PageAllocator::new();
+    /// unsafe { alloc.init(mmap) }
+    /// ```
     pub unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> T::PAResult<()> {
         self.0.init(mmap)
     }
 
-    /// Allocate physical memory aligned to page
+    /// Allocate physical memory, returning a pointer to the allocated memory and the block that the allocation started on
     ///
     /// # Arguments
-    /// * `size` - The desired allocation size in kilobytes
+    /// * `size` - Size of memory desired in kilobytes
+    ///
+    /// # Example
+    /// ```
+    /// // Assume mmap is a slice of MemoryDescriptor
+    /// let alloc = PageAllocator::new();
+    /// unsafe { alloc.init(mmap) }
+    ///
+    /// let (ptr, size) = alloc.alloc(4).unwrap();
+    /// ```
     pub fn alloc(&self, size: usize) -> T::PAResult<(*mut u8, usize)> {
         self.0.alloc(size)
     }
 
-    /// Deallocate physical memory
+    /// Deallocate physical memory, freeing it
     ///
     /// # Arguments
+    /// * `kilos_allocated` - How many blocks/kilobytes were allocated
     /// * `block_start` - The block the allocation started on
-    /// * `kilos_allocated` - The amount of kilobytes allocated
     pub fn dealloc(&self, block_start: usize, kilos_allocated: usize) -> T::PAResult<()> {
         self.0.dealloc(block_start, kilos_allocated)
     }

@@ -1,11 +1,32 @@
-use core::ops::{BitOr, BitOrAssign};
+use core::marker::PhantomData;
 
 use kernel_macros::bit_field_accessors;
 
-use crate::memory::allocators::MemoryDescriptor;
+use crate::{memory::allocators::MemoryDescriptor, peripherals::uart::println};
 
 pub type VirtualAddress = *mut u8;
 pub type PhysicalAddress = *mut u8;
+
+#[derive(Debug, Clone, Copy)]
+pub struct PageAlignedAddress<L>(*mut u8, PhantomData<L>);
+
+impl<L> PageAlignedAddress<L> {
+    /// Make a new page-aligned virtual address
+    /// This will return an error if it's not page aligned. Duh.
+    pub fn new(address: *mut u8) -> Result<Self, ()> {
+        if address as usize % 4096 != 0 {
+            Err(())
+        } else {
+            Ok(Self(address, PhantomData))
+        }
+    }
+}
+
+impl<L> From<PageAlignedAddress<L>> for *mut u8 {
+    fn from(val: PageAlignedAddress<L>) -> Self {
+        val.0
+    }
+}
 
 /// Errors for the Virtual Memory Manager
 #[derive(Debug)]
@@ -81,26 +102,36 @@ where
     /// * `src` - The physical address to map
     /// * `dst` - The address to map to
     /// * `flags` - Additional flags for the virtual address
-    pub fn map(&self, src: Frame, dst: Page, flags: u64) -> T::VMMResult<()> {
-        self.0.map(src, dst, flags)
+    pub fn map(
+        &self,
+        src: PageAlignedAddress<PhysicalAddress>,
+        dst: PageAlignedAddress<VirtualAddress>,
+        flags: u64,
+    ) -> T::VMMResult<()> {
+        self.0
+            .map(Frame::new(src.into()), Page::new(dst.into()), flags)
     }
 
     /// Unmap a virtual address
     ///
     /// # Arguments
     /// * `src` - The address to unmap
-    pub fn unmap(&self, src: Page) -> T::VMMResult<()> {
-        self.0.unmap(src)
+    pub fn unmap(&self, src: PageAlignedAddress<VirtualAddress>) -> T::VMMResult<()> {
+        self.0.unmap(Page::new(src.into()))
     }
 }
 
-/// Flags for frames and pagess
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct Flags(pub u64);
+pub struct Frame(pub u64);
+impl From<u64> for Frame {
+    fn from(item: u64) -> Self {
+        Self(item)
+    }
+}
 
-impl Flags {
-    const BIT_52_ADDRESS: u64 =
+impl Frame {
+    pub const BIT_52_ADDRESS: u64 =
         0b0000_0000_0000_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000;
 
     bit_field_accessors! {
@@ -119,136 +150,89 @@ impl Flags {
         no_execute 63;
     }
 
-    /// Create a new flags instance
-    pub fn new<T: Into<u64>>(address: T, flags: u64) -> Self {
-        Self(flags | (address.into() >> 12))
+    pub fn new(address: PhysicalAddress) -> Self {
+        assert_eq!(address as u64 & !0x000F_FFFF_FFFF_F000, 0);
+        let mut tmp = Self(address as u64);
+        tmp.set_present();
+        tmp.set_writable();
+        tmp
     }
 
-    pub fn unused(&self) -> bool {
-        self.0 == 0
-    }
-
-    /// Set the inner value to the supplied one
-    pub fn set(&mut self, val: u64) {
-        self.0 = val
-    }
-
-    /// Get the address in the flags
-    pub fn get_address(&self) -> u64 {
-        self.0 & Self::BIT_52_ADDRESS
-    }
-
-    pub fn set_address(&mut self, address: *mut u8) {
-        self.0 |= address as u64 & Self::BIT_52_ADDRESS
+    pub fn address(&self) -> PhysicalAddress {
+        (self.0 & Self::BIT_52_ADDRESS) as *mut u8
     }
 }
 
-impl From<Flags> for u64 {
-    fn from(item: Flags) -> Self {
-        item.0
-    }
-}
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct Page(pub u64);
 
-impl From<u64> for Flags {
+impl From<u64> for Page {
     fn from(item: u64) -> Self {
         Self(item)
     }
 }
 
-impl BitOr for Flags {
-    type Output = u64;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        self.0 | rhs.0
-    }
-}
-
-impl BitOr<u64> for Flags {
-    type Output = u64;
-
-    fn bitor(self, rhs: u64) -> Self::Output {
-        self.0 | rhs
-    }
-}
-
-impl BitOrAssign for Flags {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0
-    }
-}
-
-impl BitOrAssign<u64> for Flags {
-    fn bitor_assign(&mut self, rhs: u64) {
-        self.0 |= rhs
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C, align(4096))]
-pub struct Frame {
-    pub inner: Flags,
-}
-
-impl From<u64> for Frame {
-    fn from(item: u64) -> Self {
-        Self { inner: item.into() }
-    }
-}
-
-impl Frame {
-    pub fn with_address(addr: PhysicalAddress) -> Self {
-        Self {
-            inner: Flags::new(addr as u64, 0),
-        }
-    }
-
-    pub fn address(&self) -> *mut u8 {
-        self.flags().get_address() as *mut u8
-    }
-
-    pub fn flags(&self) -> Flags {
-        self.inner
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C, align(4096))]
-pub struct Page {
-    pub inner: Flags,
-}
-
-impl From<u64> for Page {
-    fn from(item: u64) -> Self {
-        Self { inner: item.into() }
-    }
-}
-
 impl Page {
-    pub fn address(&self) -> *mut u8 {
-        self.flags().get_address() as *mut u8
+    pub const BIT_52_ADDRESS: u64 =
+        0b0000_0000_0000_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000;
+
+    bit_field_accessors! {
+        present 0;
+        writable 1;
+        user_accessible 2;
+        write_through_caching 3;
+        disable_cache 4;
+        accessed 5;
+        dirty 6;
+        huge_page 7;
+        global 8;
+        // 9-11 Free Use
+        reserved 9;
+        // 52-62 Free Use
+        no_execute 63;
     }
 
-    pub fn flags(&self) -> &Flags {
-        &self.inner
+    pub fn new(address: VirtualAddress) -> Self {
+        let mut tmp = Self(address as u64);
+        tmp.set_present();
+        tmp.set_writable();
+        tmp
     }
 
-    pub fn flags_mut(&mut self) -> &mut Flags {
-        &mut self.inner
+    pub fn address(&self) -> VirtualAddress {
+        (self.0 & Self::BIT_52_ADDRESS) as *mut u8
     }
 
+    /// Bits 39-47
     pub fn p4_index(&self) -> usize {
-        (self.inner.0 as usize >> 27) & 0o777
+        (self.0 as usize >> 39) & 0x1FF
     }
 
+    /// Bits 30-38
     pub fn p3_index(&self) -> usize {
-        (self.inner.0 as usize >> 18) & 0o777
+        (self.0 as usize >> 30) & 0x1FF
     }
 
+    /// Bits 21-29
     pub fn p2_index(&self) -> usize {
-        (self.inner.0 as usize >> 9) & 0o777
+        (self.0 as usize >> 21) & 0x1FF
     }
 
+    /// Bits 12-20
     pub fn p1_index(&self) -> usize {
-        (self.inner.0 as usize) & 0o777
+        (self.0 as usize >> 12) & 0x1FF
+    }
+
+    /// Bits 0-11
+    pub fn frame_offset(&self) -> usize {
+        self.0 as usize & 0xFFF
+    }
+}
+
+impl core::fmt::Debug for Page {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Page {{\n\tLevel4Index: {},\n\tLevel3Index: {},\n\tLevel2Index: {},\n\tLevel1Index: {},\n\tFrameOffset: {} (0x{:x}),\n\tBaseAddress: {:?},\n}}", self.p4_index(), self.p3_index(), self.p2_index(), self.p1_index(), self.frame_offset(), self.frame_offset(), self.address())
+        // f.debug_tuple("Page").finish()
     }
 }

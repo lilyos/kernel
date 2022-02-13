@@ -125,7 +125,10 @@ impl<'a> PageAllocator<'a> {
 impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
     type PAResult<T> = Result<T, AllocatorError>;
 
-    /// Initializes the page allocator
+    /// Initialize the allocator
+    ///
+    /// # Arguments
+    /// * `mmap` - Slice of memory descriptors
     ///
     /// # Example
     /// ```
@@ -194,6 +197,13 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
     /// * `size` - Size of memory desired in kilobytes
     ///
     /// # Example
+    /// ```
+    /// // Assume mmap is a slice of MemoryDescriptor
+    /// let alloc = PageAllocator::new();
+    /// unsafe { alloc.init(mmap) }
+    ///
+    /// let (ptr, size) = alloc.alloc(4).unwrap();
+    /// ```
     fn alloc(&self, size: usize) -> Result<(*mut u8, usize), AllocatorError> {
         assert!(size < (self.pages.load(Ordering::SeqCst) * Self::BLOCK_SIZE));
 

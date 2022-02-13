@@ -1,3 +1,5 @@
+use core::arch::asm;
+
 use kernel_macros::bit_field_accessors;
 
 #[repr(transparent)]
@@ -16,5 +18,15 @@ impl CR0 {
         not_write_through 29;
         cache_disable 30;
         paging 31;
+    }
+
+    pub fn get() -> CR0 {
+        let mut cr0: u64;
+        unsafe { asm!("mov {}, cr0", out(reg) cr0) }
+        CR0(cr0)
+    }
+
+    pub fn update(&mut self) {
+        unsafe { asm!("mov cr0, {}", in(reg) self.0) }
     }
 }
