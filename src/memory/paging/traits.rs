@@ -194,14 +194,17 @@ impl Page {
     }
 
     pub fn new(address: VirtualAddress) -> Self {
-        let mut tmp = Self(address as u64);
+        let mut tmp = match address as u64 >> 47 {
+            0 | 0x1FFF => Self(address as u64),
+            _ => panic!("This shouldn't happen"),
+        };
         tmp.set_present();
         tmp.set_writable();
         tmp
     }
 
     pub fn address(&self) -> VirtualAddress {
-        (self.0 & Self::BIT_52_ADDRESS) as *mut u8
+        (self.0) as *mut u8
     }
 
     /// Bits 39-47

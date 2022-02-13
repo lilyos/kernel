@@ -1,4 +1,4 @@
-use core::{arch::asm, fmt::Display, marker::PhantomData, slice::SliceIndex};
+use core::{arch::asm, fmt::Display, marker::PhantomData};
 
 use kernel_macros::bit_field_accessors;
 
@@ -248,24 +248,36 @@ impl VirtualMemoryManager for MemoryManagerImpl {
         unsafe {
             asm!("mov {}, cr3", out(reg) cr3);
         }
-        println!("Got P4 ({:?})", cr3 as *mut TableLevel4);
+        println!(
+            "Got P4 ({:?})",
+            (cr3 & 0x000FFFFFFFFFF000) as *mut TableLevel4
+        );
         let p4 = unsafe { Self::get_p4_table() };
 
         let p3p = p4.data[src.p4_index()].0;
-        println!("Got P3, ({:?})", p3p as *mut TableLevel3);
+        println!(
+            "Got P3, ({:?})",
+            (p3p & 0x000FFFFFFFFFF000) as *mut TableLevel3
+        );
         let p3 = p4.sub_table(src.p4_index())?;
 
         let p2p = p3.data[src.p3_index()].0;
-        println!("Got P2 ({:?})", p2p as *mut TableLevel2);
+        println!(
+            "Got P2 ({:?})",
+            (p2p & 0x000FFFFFFFFFF000) as *mut TableLevel2
+        );
         let p2 = p3.sub_table(src.p3_index())?;
 
         let p1p = p2.data[src.p2_index()].0;
-        println!("Got P1 ({:?})", p1p as *mut TableLevel1);
+        println!(
+            "Got P1 ({:?})",
+            (p1p & 0x000FFFFFFFFFF000) as *mut TableLevel1
+        );
         let p1 = p2.sub_table(src.p2_index())?;
 
         for (idx, frm) in p1.data.iter().enumerate() {
-            if frm.get_present() {
-                println!("Frame {} present", idx);
+            if frm.0 != 0 {
+                println!("Frame {} exists, 0x{:x}", idx, frm.0);
             }
         }
 
