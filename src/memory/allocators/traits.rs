@@ -46,7 +46,7 @@ pub trait PhysicalAllocatorImpl {
     fn dealloc(&self, block_start: usize, kilos_allocated: usize) -> Self::PAResult<()>;
 }
 
-pub struct PhysicalAllocator<T>(T)
+pub struct PhysicalAllocator<T>(pub T)
 where
     T: PhysicalAllocatorImpl;
 

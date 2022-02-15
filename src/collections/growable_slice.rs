@@ -38,7 +38,6 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
     /// ```
     pub unsafe fn init(&mut self) -> Result<(), AllocatorError> {
         let (alloc, block_start) = crate::PHYSICAL_ALLOCATOR.alloc(1)?;
-        crate::peripherals::uart::println!("GrowableSlice Alloc: 0x{:x}", alloc as usize);
         self.storage = core::slice::from_raw_parts_mut(
             alloc as *mut Option<T>,
             1024 / core::mem::size_of::<T>(),

@@ -35,7 +35,6 @@ impl<L> PageTableEntry<L> {
     }
 
     pub fn new(address: u64, extra_flags: u64) -> Self {
-        assert_eq!(address & !0x000F_FFFF_FFFF_F000, 0);
         // let mut tmp = Self((address & Self::BIT_52_ADDRESS) | extra_flags, PhantomData);
         let mut tmp = Self(address | extra_flags, PhantomData);
         tmp.set_present();
@@ -70,19 +69,13 @@ impl<L> PageTableEntry<L> {
 
 impl<L: Display> core::fmt::Display for PageTableEntry<L> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(item) = self.get_item() {
-            write!(f, "{}", item)?;
-        }
-        Ok(())
+        write!(f, "{}", self.0)
     }
 }
 
 impl<L: core::fmt::Debug> core::fmt::Debug for PageTableEntry<L> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(item) = self.get_item() {
-            write!(f, "{:?}", item)?;
-        }
-        Ok(())
+        write!(f, "{:?}", self.0)
     }
 }
 
@@ -201,17 +194,23 @@ impl TableLevel1 {
     }
 
     pub fn frame_create(&mut self, index: usize) -> &mut Frame {
-        let entry = &mut self.data[index];
+        let entry = self.data[index].clone();
         if !entry.get_present() {
             let (ptr, _) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
-            *entry = PageTableEntry::new(Frame::new(ptr).0, 0);
+            self.data[index] = PageTableEntry::new(ptr as u64, 0);
         }
-        entry.get_item_mut().unwrap()
+        self.data[index].get_item_mut().unwrap()
     }
 
-    pub fn frame_create_specified(&mut self, index: usize, src: Frame) -> &mut Frame {
+    pub fn frame_set_specified(&mut self, index: usize, src: Frame) -> &mut Frame {
+        println!("Frame address: {:?}", src.address());
+        let new =
+            (src.0 | PageTableEntry::<Frame>::PRESENT | PageTableEntry::<Frame>::WRITABLE) as u64;
+
+        unsafe { core::ptr::write_volatile(self.data.as_ptr().add(index) as *mut u64, new) }
+
         let entry = &mut self.data[index];
-        *entry = PageTableEntry::new(src.0, 0);
+
         entry.get_item_mut().unwrap()
     }
 }
@@ -235,72 +234,84 @@ impl VirtualMemoryManager for MemoryManagerImpl {
 
     unsafe fn init(
         &self,
-        mmap: &[crate::memory::allocators::MemoryDescriptor],
+        _mmap: &[crate::memory::allocators::MemoryDescriptor],
     ) -> Self::VMMResult<()> {
         Ok(())
     }
 
     fn virtual_to_physical(&self, src: VirtualAddress) -> Option<PhysicalAddress> {
         let src = Page::new(src);
-        println!("Page: {:?}", src);
 
-        let cr3: u64;
-        unsafe {
-            asm!("mov {}, cr3", out(reg) cr3);
-        }
-        println!(
-            "Got P4 ({:?})",
-            (cr3 & 0x000FFFFFFFFFF000) as *mut TableLevel4
-        );
         let p4 = unsafe { Self::get_p4_table() };
 
-        let p3p = p4.data[src.p4_index()].0;
-        println!(
-            "Got P3, ({:?})",
-            (p3p & 0x000FFFFFFFFFF000) as *mut TableLevel3
-        );
         let p3 = p4.sub_table(src.p4_index())?;
 
-        let p2p = p3.data[src.p3_index()].0;
-        println!(
-            "Got P2 ({:?})",
-            (p2p & 0x000FFFFFFFFFF000) as *mut TableLevel2
-        );
-        let p2 = p3.sub_table(src.p3_index())?;
+        let p2_raw = p3.data[src.p3_index()].clone();
 
-        let p1p = p2.data[src.p2_index()].0;
-        println!(
-            "Got P1 ({:?})",
-            (p1p & 0x000FFFFFFFFFF000) as *mut TableLevel1
-        );
-        let p1 = p2.sub_table(src.p2_index())?;
-
-        for (idx, frm) in p1.data.iter().enumerate() {
-            if frm.0 != 0 {
-                println!("Frame {} exists, 0x{:x}", idx, frm.0);
-            }
+        if p2_raw.get_huge_page() && p2_raw.get_present() {
+            return unsafe { Some(p2_raw.address().add((src.0 & 0x3FFF_FFFF) as usize)) };
         }
 
-        println!("OwO");
+        let p2 = p3.sub_table(src.p3_index())?;
+
+        let p1_raw = p2.data[src.p2_index()].clone();
+
+        if p1_raw.get_present() && p1_raw.get_huge_page() {
+            return unsafe { Some(p1_raw.address().add((src.0 & 0x1F_FFFF) as usize)) };
+        }
+
+        let p1 = p2.sub_table(src.p2_index())?;
 
         let frame = p1.frame(src.p1_index())?;
         let offset = src.frame_offset();
-        println!("Got Frame and Offset");
 
         Some(unsafe { frame.address().add(offset) } as *mut u8)
     }
 
     fn map(&self, src: Frame, dst: Page, flags: u64) -> Self::VMMResult<()> {
-        let src: Frame = (src.0 | flags).into();
+        let mut src: Frame = (src.0 | flags).into();
+        src.set_present();
+        src.set_writable();
         let p4 = unsafe { Self::get_p4_table() };
         let p3 = p4.sub_table_create(dst.p4_index());
+        if p3.data[dst.p3_index()].clone().get_huge_page() {
+            return Err(VirtualMemoryManagerError::AttemptedToMapToHugePage);
+        }
         let p2 = p3.sub_table_create(dst.p3_index());
+        if p2.data[dst.p2_index()].get_huge_page() {
+            return Err(VirtualMemoryManagerError::AttemptedToMapToHugePage);
+        }
         let p1 = p2.sub_table_create(dst.p2_index());
-        let _frame = p1.frame_create_specified(dst.p1_index(), src);
+        let _frame = p1.frame_set_specified(dst.p1_index(), src);
+
         Ok(())
     }
 
     fn unmap(&self, src: Page) -> Self::VMMResult<()> {
-        Err(VirtualMemoryManagerError::NotImplemented)
+        let base = Page::new(src.base_address().0);
+        let p4 = unsafe { Self::get_p4_table() };
+        let p3 = p4
+            .sub_table(base.p4_index())
+            .ok_or(VirtualMemoryManagerError::PageNotFound)?;
+
+        if p3.data[base.p3_index()].get_huge_page() {
+            p3.data[base.p3_index()].0 = 0;
+        }
+
+        let p2 = p3
+            .sub_table(base.p3_index())
+            .ok_or(VirtualMemoryManagerError::PageNotFound)?;
+
+        if p2.data[base.p2_index()].get_huge_page() {
+            p2.data[base.p2_index()].0 = 0;
+        }
+
+        let p1 = p2
+            .sub_table(base.p2_index())
+            .ok_or(VirtualMemoryManagerError::PageNotFound)?;
+
+        p1.data[base.p1_index()].0 = 0;
+
+        Ok(())
     }
 }

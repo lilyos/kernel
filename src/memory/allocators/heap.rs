@@ -1,6 +1,6 @@
 use super::{align, AllocatorError};
 
-use crate::{collections::GrowableSlice, println, sync::Mutex};
+use crate::{collections::GrowableSlice, sync::Mutex};
 
 extern crate alloc;
 use alloc::alloc::{GlobalAlloc, Layout};
@@ -173,23 +173,6 @@ impl HeapAllocator {
         Ok(alloc_start)
     }
 
-    /// Display the free regions
-    pub fn display(&self) {
-        println!("{}", DIV);
-
-        let items = self.storage.lock();
-        for item in items
-            .storage
-            .iter()
-            .filter(|i| i.is_some())
-            .map(|i| i.as_ref().unwrap())
-        {
-            println!("Allocator Node {:#?}", item);
-        }
-
-        println!("{}", DIV);
-    }
-
     /// Join nearby regions by adding an item's start and checking if it equals the
     /// next item's start.
     fn join_nearby(&self) {
@@ -221,6 +204,24 @@ impl HeapAllocator {
                 break;
             }
         }
+    }
+}
+
+impl core::fmt::Display for HeapAllocator {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        writeln!(f, "{}", DIV)?;
+
+        let items = self.storage.lock();
+        for item in items
+            .storage
+            .iter()
+            .filter(|i| i.is_some())
+            .map(|i| i.as_ref().unwrap())
+        {
+            writeln!(f, "Allocator Node {:#?}", item)?;
+        }
+
+        writeln!(f, "{}", DIV)
     }
 }
 

@@ -3,6 +3,35 @@ use core::{
     ops::Index,
 };
 
+pub struct BitSliceIter<'a> {
+    pos: usize,
+    pub data: &'a [u8],
+}
+
+impl<'a> BitSliceIter<'a> {
+    pub fn new(bs: &'a BitSlice<'a>) -> Self {
+        Self {
+            pos: 0,
+            data: unsafe { core::slice::from_raw_parts(bs.data.as_ptr(), bs.data.len()) },
+        }
+    }
+}
+
+impl<'a> Iterator for BitSliceIter<'a> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos < self.data.len() * 8 {
+            let (index, bit) = (self.pos / 8, self.pos % 8);
+            let val = Some(self.data[index] & (1 << bit) != 0);
+            self.pos += 1;
+            val
+        } else {
+            None
+        }
+    }
+}
+
 /// A slice you can index by bits
 ///
 /// # Example
@@ -16,7 +45,6 @@ use core::{
 /// ```
 #[derive(Debug)]
 pub struct BitSlice<'a> {
-    pos: usize,
     pub data: &'a mut [u8],
 }
 
@@ -33,10 +61,7 @@ impl<'a> BitSlice<'a> {
     /// assert!(bits[1]);
     /// ```
     pub const fn new() -> Self {
-        Self {
-            pos: 0,
-            data: &mut [],
-        }
+        Self { data: &mut [] }
     }
 
     /// Initialize the BitSlice.
@@ -61,12 +86,11 @@ impl<'a> BitSlice<'a> {
         self.data.fill(0);
     }
 
-    #[inline(always)]
     /// Calculate the needed numbers to get a certain bit
     ///
     /// # Arguments
     /// * `bit` - The desired bit
-    fn calculate_offset(bit: usize) -> (usize, usize) {
+    const fn calculate_offset(bit: usize) -> (usize, usize) {
         (bit / 8, bit % 8)
     }
 
@@ -86,13 +110,11 @@ impl<'a> BitSlice<'a> {
     /// ```
     pub fn set(&mut self, bit_set: usize, val: bool) {
         let (index, bit) = Self::calculate_offset(bit_set);
-        // crate::peripherals::uart::println!("Set index {} bit {} to {}", index, bit, val);
         self.data[index] = (!val as u8 ^ self.data[index]) ^ (1 << bit);
     }
 
-    /// Resets the internal position to 0, preparing the iterator to be traversed again
-    pub fn reset_iterator(&mut self) {
-        self.pos = 0;
+    pub fn iter(&self) -> BitSliceIter {
+        BitSliceIter::new(self)
     }
 }
 
@@ -106,20 +128,6 @@ impl<'a> Index<usize> for BitSlice<'a> {
             &true
         } else {
             &false
-        }
-    }
-}
-
-impl<'a> Iterator for BitSlice<'a> {
-    type Item = bool;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.pos < self.data.len() * 8 {
-            let val = Some(self[self.pos]);
-            self.pos += 1;
-            val
-        } else {
-            None
         }
     }
 }

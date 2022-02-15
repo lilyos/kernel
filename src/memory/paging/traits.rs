@@ -2,13 +2,13 @@ use core::marker::PhantomData;
 
 use kernel_macros::bit_field_accessors;
 
-use crate::{memory::allocators::MemoryDescriptor, peripherals::uart::println};
+use crate::memory::allocators::MemoryDescriptor;
 
 pub type VirtualAddress = *mut u8;
 pub type PhysicalAddress = *mut u8;
 
 #[derive(Debug, Clone, Copy)]
-pub struct PageAlignedAddress<L>(*mut u8, PhantomData<L>);
+pub struct PageAlignedAddress<L>(pub *mut u8, PhantomData<L>);
 
 impl<L> PageAlignedAddress<L> {
     /// Make a new page-aligned virtual address
@@ -33,6 +33,10 @@ impl<L> From<PageAlignedAddress<L>> for *mut u8 {
 pub enum VirtualMemoryManagerError {
     /// The requested feature isn't implemented
     NotImplemented,
+    /// Huge pages can't have children
+    AttemptedToMapToHugePage,
+    /// The desired page in the virtual address doesn't exist
+    PageNotFound,
 }
 
 pub trait VirtualMemoryManager {
@@ -67,7 +71,7 @@ pub trait VirtualMemoryManager {
 }
 
 /// Wrapper for virtual memory managers
-pub struct MemoryManager<T>(T)
+pub struct MemoryManager<T>(pub T)
 where
     T: VirtualMemoryManager;
 
@@ -207,6 +211,10 @@ impl Page {
         (self.0) as *mut u8
     }
 
+    pub fn base_address(&self) -> PageAlignedAddress<VirtualAddress> {
+        PageAlignedAddress::new((self.0 & Self::BIT_52_ADDRESS) as *mut u8).unwrap()
+    }
+
     /// Bits 39-47
     pub fn p4_index(&self) -> usize {
         (self.0 as usize >> 39) & 0x1FF
@@ -229,13 +237,13 @@ impl Page {
 
     /// Bits 0-11
     pub fn frame_offset(&self) -> usize {
-        self.0 as usize & 0xFFF
+        self.0 as usize & 0xFFFF
     }
 }
 
 impl core::fmt::Debug for Page {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Page {{\n\tLevel4Index: {},\n\tLevel3Index: {},\n\tLevel2Index: {},\n\tLevel1Index: {},\n\tFrameOffset: {} (0x{:x}),\n\tBaseAddress: {:?},\n}}", self.p4_index(), self.p3_index(), self.p2_index(), self.p1_index(), self.frame_offset(), self.frame_offset(), self.address())
+        write!(f, "Page {{\n\tLevel4Index: {},\n\tLevel3Index: {},\n\tLevel2Index: {},\n\tLevel1Index: {},\n\tFrameOffset: {} (0x{:x}),\n\tBaseAddress: {:?},\n}}", self.p4_index(), self.p3_index(), self.p2_index(), self.p1_index(), self.frame_offset(), self.frame_offset(), (self.address() as u64 & Self::BIT_52_ADDRESS) as *mut u8)
         // f.debug_tuple("Page").finish()
     }
 }

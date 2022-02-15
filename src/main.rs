@@ -55,26 +55,24 @@ extern crate alloc;
 /// The kernel entrypoint, gets the memory descriptors then passes them to kernel main
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let mmap: *mut MemoryDescriptor;
+    let mmap_ptr: *mut MemoryDescriptor;
     let len: usize;
     unsafe {
         asm!(
             "mov {}, r9",
             "mov {}, r10",
-            out(reg) mmap,
+            out(reg) mmap_ptr,
             out(reg) len,
         );
     }
-    kentry(mmap, len)
+    let mmap = unsafe { core::slice::from_raw_parts(mmap_ptr, len) };
+    kentry(mmap)
 }
 
 /// The kernel main loop
 #[no_mangle]
-extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
+fn kentry(mmap: &[MemoryDescriptor]) -> ! {
     println!("`Println!` functioning!");
-
-    let mmap = unsafe { core::slice::from_raw_parts(ptr, len) };
-    // println!("MMAP: {:#?}", mmap);
 
     unsafe { PHYSICAL_ALLOCATOR.init(mmap).unwrap() };
 
@@ -104,15 +102,6 @@ extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
 
     println!("Well, let's try to make some mappings :v");
     let mut cr0 = CR0::get();
-    cr0.clear_write_protect();
-    cr0.update();
-    {
-        println!(
-            "CR0 has paging on: {}, write protect on: {}",
-            cr0.get_paging(),
-            cr0.get_write_protect()
-        );
-    }
 
     let cr3: u64;
     unsafe {
@@ -141,10 +130,22 @@ extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
     unsafe { src.write(4) }
     println!("Wrote to address");
 
-    let dst: usize = memory::allocators::align(0xdeadbeef, 4096);
+    let dst: usize = 0x7e00000;
     println!("0x{:x}", dst);
 
     println!("should fail here");
+    cr0.clear_write_protect();
+    cr0.update();
+
+    println!(
+        "CR0 has paging on: {}, write protect on: {}",
+        cr0.get_paging(),
+        cr0.get_write_protect()
+    );
+
+    MEMORY_MANAGER
+        .unmap(PageAlignedAddress::new(dst as *mut u8).unwrap())
+        .unwrap();
 
     MEMORY_MANAGER
         .map(
@@ -154,6 +155,9 @@ extern "C" fn kentry(ptr: *mut MemoryDescriptor, len: usize) -> ! {
         )
         .unwrap();
     println!("{}", unsafe { *(dst as *mut u8) });
+    MEMORY_MANAGER
+        .unmap(PageAlignedAddress::new(dst as *mut u8).unwrap())
+        .unwrap();
     PHYSICAL_ALLOCATOR.dealloc(start, 4).unwrap();
 
     let mutex = sync::Mutex::new(9);

@@ -49,13 +49,12 @@ impl<'a> PageAllocator<'a> {
     pub fn get_used(&self) -> usize {
         let mut total = 0;
         {
-            let mut scratch = self.scratch.lock();
-            for item in &mut *scratch {
+            let scratch = self.scratch.lock();
+            for item in scratch.iter() {
                 if item {
                     total += 1;
                 }
             }
-            scratch.reset_iterator();
         }
         total
     }
@@ -68,18 +67,18 @@ impl<'a> PageAllocator<'a> {
         let mut block = 0;
         let mut consecutive = 0;
         {
-            let mut scratch = self.scratch.lock();
-            for (index, item) in (&mut *scratch).enumerate() {
+            let scratch = self.scratch.lock();
+            let iter = scratch.iter();
+            for (index, item) in iter.enumerate() {
                 if consecutive == block_count {
                     return Some(block);
                 } else if !item {
                     consecutive += 1;
                 } else {
-                    block = index;
+                    block = index + 1;
                     consecutive = 0;
                 }
             }
-            scratch.reset_iterator();
         }
 
         None
@@ -96,6 +95,11 @@ impl<'a> PageAllocator<'a> {
         assert!(starting_pos < (self.pages.load(Ordering::SeqCst) * Self::BLOCK_SIZE) / 8);
         let mut scratch = self.scratch.lock();
 
+        for i in starting_pos..(starting_pos + blocks_to_set) {
+            scratch.set(i, value);
+        }
+
+        /*
         for i in 0..blocks_to_set {
             for x in
                 (starting_pos << (blocks_to_set - i))..((starting_pos + 1) << (blocks_to_set - i))
@@ -118,7 +122,7 @@ impl<'a> PageAllocator<'a> {
                     }
                 }
             }
-        }
+        }*/
     }
 }
 
@@ -138,7 +142,6 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
     /// ```
     unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> Result<(), AllocatorError> {
         assert!(!mmap.is_empty());
-        // println!("{:?}", mmap);
         let mut pages = 0;
         let mut end = 0;
 
@@ -149,44 +152,34 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
             }
             pages += (mentry.end - mentry.start) / Self::BLOCK_SIZE;
         }
-        let scratch_bits = align(end / 4096, 8) / 8;
+        let scratch_bytes = align(end / 4096, 8) / 8;
         self.pages.store(pages, Ordering::SeqCst);
 
         let scratch_entry = mmap.iter().find(|i| i.phys_start >= 4096).unwrap();
 
-        let scratch_start = scratch_entry.phys_start;
+        let scratch_start: usize = scratch_entry.phys_start.try_into().unwrap();
 
-        let scratch_end = align(scratch_start as usize + scratch_bits, Self::BLOCK_SIZE) - 1;
+        let scratch_end = align(scratch_start + scratch_bytes, Self::BLOCK_SIZE) - 1;
+
         {
             let mut sscratch = self.scratch.lock();
-            sscratch.init(scratch_start as *mut u8, scratch_bits);
-
+            sscratch.init(scratch_start as *mut u8, scratch_bytes);
             for i in mmap.iter().map(MemoryEntry::from) {
-                if i.start < 4096 {
-                    sscratch.set(0, true);
-                }
-                if i.start == scratch_start.try_into().unwrap() {
-                    for j in (i.start..i.end).step_by(4096) {
-                        if j >= scratch_end {
-                            break;
-                        }
-                        let bit = j / 4096;
-                        sscratch.set(bit, true);
-                    }
-                } else if i.kind == MemoryKind::Reserve || i.kind == MemoryKind::ACPINonVolatile {
-                    for j in (i.start..i.end).step_by(4096) {
-                        let bit = j / 4096;
-                        sscratch.set(bit, true);
+                for a in (i.start..i.end).step_by(4096) {
+                    if a < 4096
+                        || (a >= scratch_start && a < scratch_end)
+                        || i.kind == MemoryKind::Reserve
+                        || i.kind == MemoryKind::ACPINonVolatile
+                    {
+                        sscratch.set(a / 4096, true)
                     }
                 }
             }
+
+            assert!(sscratch[0], "The first page wasn't marked used");
         }
 
-        println!(
-            "{}/{} usable",
-            self.pages.load(Ordering::SeqCst) - self.get_used(),
-            self.pages.load(Ordering::SeqCst),
-        );
+        println!("{}/{} usable", pages - self.get_used(), pages);
 
         Ok(())
     }
@@ -209,11 +202,6 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
 
         let pages = align(size * 1024, Self::BLOCK_SIZE) / Self::BLOCK_SIZE;
 
-        {
-            let tmp = self.scratch.lock();
-            assert!(tmp[0]);
-        }
-
         let found = match self.get_zone_with_size(pages) {
             Some(v) => v,
             None => {
@@ -225,9 +213,14 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
             }
         };
 
+        assert!(found != 0, "The first page was found as an allocation");
+
         self.set_range(pages, found, true);
 
-        Ok((unsafe { self.region.add(found << size) as *mut u8 }, found))
+        Ok((
+            unsafe { self.region.add(found * Self::BLOCK_SIZE) as *mut u8 },
+            found,
+        ))
     }
 
     /// Deallocate physical memory, freeing it
@@ -242,7 +235,7 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
 
         {
             let scratch = self.scratch.lock();
-            if scratch[block_start] {
+            if !scratch[block_start] {
                 return Err(AllocatorError::DoubleFree);
             }
         }
