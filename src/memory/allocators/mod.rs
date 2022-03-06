@@ -11,7 +11,7 @@ mod traits;
 pub use traits::{AllocatorError, PhysicalAllocator, PhysicalAllocatorImpl};
 
 mod utilities;
-pub use utilities::align;
+pub use utilities::*;
 
 mod page_allocator;
 pub use page_allocator::PageAllocator;

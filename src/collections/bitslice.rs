@@ -86,6 +86,17 @@ impl<'a> BitSlice<'a> {
         self.data.fill(0);
     }
 
+    /// Initializes the bitslice from an existing slice without zeroing it
+    /// This is unsafe because it is intended to be infallible.
+    /// If it fails, behavior is undefined.
+    ///
+    /// # Arguments
+    /// * `start` - A pointer to the data to use
+    /// * `size` - The len of the data referenced by `start`
+    pub unsafe fn new_from_init(&mut self, start: *mut u8, size: usize) {
+        self.data = core::slice::from_raw_parts_mut(start, size);
+    }
+
     /// Calculate the needed numbers to get a certain bit
     ///
     /// # Arguments

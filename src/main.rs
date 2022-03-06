@@ -20,12 +20,14 @@
 
 mod collections;
 mod memory;
+
 use memory::{
     allocators::{HeapAllocator, MemoryDescriptor, PageAllocator, PhysicalAllocator},
     paging::{MemoryManager, MemoryManagerImpl},
 };
 
 mod peripherals;
+mod structures;
 mod sync;
 mod traits;
 
@@ -46,6 +48,7 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
 use crate::{
     memory::paging::{PageAlignedAddress, CR0},
     peripherals::uart::{print, println},
+    structures::{GlobalDescriptorTable, TaskStateSegment},
 };
 
 use core::arch::asm;
@@ -102,6 +105,8 @@ fn kentry(mmap: &[MemoryDescriptor]) -> ! {
 
     println!("Well, let's try to make some mappings :v");
     let mut cr0 = CR0::get();
+    cr0.clear_write_protect();
+    cr0.update();
 
     let cr3: u64;
     unsafe {
@@ -126,40 +131,6 @@ fn kentry(mmap: &[MemoryDescriptor]) -> ! {
 
     unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
 
-    let (src, start) = PHYSICAL_ALLOCATOR.alloc(4).unwrap();
-    unsafe { src.write(4) }
-    println!("Wrote to address");
-
-    let dst: usize = 0x7e00000;
-    println!("0x{:x}", dst);
-
-    println!("should fail here");
-    cr0.clear_write_protect();
-    cr0.update();
-
-    println!(
-        "CR0 has paging on: {}, write protect on: {}",
-        cr0.get_paging(),
-        cr0.get_write_protect()
-    );
-
-    MEMORY_MANAGER
-        .unmap(PageAlignedAddress::new(dst as *mut u8).unwrap())
-        .unwrap();
-
-    MEMORY_MANAGER
-        .map(
-            PageAlignedAddress::new(src).unwrap(),
-            PageAlignedAddress::new(dst as *mut u8).unwrap(),
-            0,
-        )
-        .unwrap();
-    println!("{}", unsafe { *(dst as *mut u8) });
-    MEMORY_MANAGER
-        .unmap(PageAlignedAddress::new(dst as *mut u8).unwrap())
-        .unwrap();
-    PHYSICAL_ALLOCATOR.dealloc(start, 4).unwrap();
-
     let mutex = sync::Mutex::new(9);
     {
         println!("Locking mutex!");
@@ -170,6 +141,25 @@ fn kentry(mmap: &[MemoryDescriptor]) -> ! {
     println!("Dropped mutex!");
 
     println!("Beginning echo...");
+
+    let esp: u64;
+    unsafe {
+        asm!("mov {}, rsp", out(reg) esp);
+    }
+    let tss = TaskStateSegment::new_no_ports(
+        esp as *mut u8,
+        core::ptr::null_mut(),
+        core::ptr::null_mut(),
+    );
+
+    let gdt_data = [0u8; 10];
+    let addr = gdt_data.as_ptr() as usize;
+    unsafe {
+        asm!("sgdt [{}]", in(reg) addr);
+    }
+
+    let gdt = usize::from_le_bytes(gdt_data[0..8].try_into().unwrap());
+    let gdt = unsafe { &mut *(gdt as *mut GlobalDescriptorTable) };
 
     loop {
         let mut uart = crate::peripherals::UART.lock();
@@ -188,6 +178,12 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         println!("Line: {}\nFile: {}", loc.line(), loc.file());
     }
     loop {
-        unsafe { asm!("nop") }
+        let mut i: u64 = 0;
+        (0..u64::MAX).for_each(|_| {
+            i += 1;
+        });
+        unsafe {
+            asm!("int 0x00");
+        }
     }
 }

@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use kernel_macros::bit_field_accessors;
 
-use crate::memory::allocators::MemoryDescriptor;
+use crate::memory::allocators::{is_address_canonical, MemoryDescriptor};
 
 pub type VirtualAddress = *mut u8;
 pub type PhysicalAddress = *mut u8;
@@ -128,6 +128,7 @@ where
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct Frame(pub u64);
+
 impl From<u64> for Frame {
     fn from(item: u64) -> Self {
         Self(item)
@@ -135,8 +136,7 @@ impl From<u64> for Frame {
 }
 
 impl Frame {
-    pub const BIT_52_ADDRESS: u64 =
-        0b0000_0000_0000_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000;
+    pub const BIT_52_ADDRESS: u64 = 0x000F_FFFF_FFFF_F000;
 
     bit_field_accessors! {
         present 0;
@@ -155,7 +155,6 @@ impl Frame {
     }
 
     pub fn new(address: PhysicalAddress) -> Self {
-        assert_eq!(address as u64 & !0x000F_FFFF_FFFF_F000, 0);
         let mut tmp = Self(address as u64);
         tmp.set_present();
         tmp.set_writable();
@@ -178,8 +177,7 @@ impl From<u64> for Page {
 }
 
 impl Page {
-    pub const BIT_52_ADDRESS: u64 =
-        0b0000_0000_0000_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000;
+    pub const BIT_52_ADDRESS: u64 = 0x000F_FFFF_FFFF_F000;
 
     bit_field_accessors! {
         present 0;
@@ -198,10 +196,10 @@ impl Page {
     }
 
     pub fn new(address: VirtualAddress) -> Self {
-        let mut tmp = match address as u64 >> 47 {
-            0 | 0x1FFF => Self(address as u64),
-            _ => panic!("This shouldn't happen"),
-        };
+        if !is_address_canonical(address as usize, 48) {
+            panic!("The address is non-canonical")
+        }
+        let mut tmp = Self(address as u64);
         tmp.set_present();
         tmp.set_writable();
         tmp
