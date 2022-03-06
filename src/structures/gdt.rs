@@ -1,4 +1,7 @@
-use core::ops::{Index, IndexMut};
+use core::{
+    arch::asm,
+    ops::{Index, IndexMut},
+};
 
 #[repr(u8)]
 pub enum EntryType {
@@ -52,6 +55,18 @@ impl TSSAccessByte {
     pub fn set_type(&mut self, kind: EntryType) {
         self.0 &= !0xF;
         self.0 &= kind as u8;
+    }
+}
+
+impl core::fmt::Debug for TSSAccessByte {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "TSSAccessByte {{\n\ttype: {},\n\tdescriptor_level: {},\n\tpresent: {},\n\t}}",
+            self.get_type(),
+            self.get_descriptor_level(),
+            self.get_present()
+        )
     }
 }
 
@@ -171,14 +186,20 @@ impl CodeDataAccessByte {
     }
 }
 
+impl core::fmt::Debug for CodeDataAccessByte {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "CodeDataAccessByte {{\n\taccessed: {},\n\tread_write: {},\n\tdirection: {},\n\texecutable: {},\n\tdescriptor_level: {},\n\tpresent: {},\n\t}}", self.get_accessed(), self.get_read_write(), self.get_direction(), self.get_executable(), self.get_descriptor_level() ,self.get_present())
+    }
+}
+
 /// An undetermined type of access byte
 pub union AccessByte {
-    /// The raw value
-    raw: u8,
     /// If it's for a TSS
     pub tss: TSSAccessByte,
     /// If it's for a code or data segment
     pub code: CodeDataAccessByte,
+    /// The raw value
+    raw: u8,
 }
 
 impl AccessByte {
@@ -203,8 +224,18 @@ impl AccessByte {
     }
 }
 
+impl core::fmt::Debug for AccessByte {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.is_code_or_data() {
+            write!(f, "{:?}", unsafe { self.code })
+        } else {
+            write!(f, "{:?}", unsafe { self.tss })
+        }
+    }
+}
+
 #[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 /// An entry in the GDT
 pub struct SegmentDescriptor {
     /// The maximum addressable unit and the size of the segment, ignored in 64bit
@@ -281,6 +312,29 @@ impl SegmentDescriptor {
     }
 }
 
+impl core::fmt::Debug for SegmentDescriptor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "SegmentDescriptor {{\n\tlimit: 0x{:x},\n\tbase: 0x{:x},\n\taccess_byte: {:?},\n\tflags: 0x{:x},\n\tlimit: 0x{:x},\n}}", self.get_limit(), self.get_base(), self.access_byte, self.get_flags(), self.get_limit())
+    }
+}
+
+#[repr(packed)]
+pub struct SaveGlobalDescriptorTableResult {
+    pub limit: u16,
+    pub base: u64,
+}
+
+impl SaveGlobalDescriptorTableResult {
+    pub fn get() -> Self {
+        let mut tmp = SaveGlobalDescriptorTableResult { limit: 0, base: 0 };
+        let ptr = &mut tmp as *mut SaveGlobalDescriptorTableResult;
+        unsafe {
+            asm!("sgdt [{}]", in(reg) ptr);
+        }
+        tmp
+    }
+}
+
 #[repr(C)]
 /// A representation of the Global Descriptor Table
 pub struct GlobalDescriptorTable<'a> {
@@ -293,12 +347,25 @@ impl<'a> GlobalDescriptorTable<'a> {
         Self { entries: &mut [] }
     }
 
-    pub fn from_existing(addr: *mut GlobalDescriptorTable, limit: usize) -> Self {
+    pub fn from_existing(res: SaveGlobalDescriptorTableResult) -> Self {
         Self {
             entries: unsafe {
-                core::slice::from_raw_parts_mut(addr as *mut SegmentDescriptor, limit / 8)
+                core::slice::from_raw_parts_mut(
+                    res.base as *mut SegmentDescriptor,
+                    (res.limit / 8).into(),
+                )
             },
         }
+    }
+}
+
+impl<'a> core::fmt::Debug for GlobalDescriptorTable<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "GlobalDescriptorTable {{")?;
+        for i in self.entries.iter() {
+            write!(f, "\n\t{:?},", i)?;
+        }
+        write!(f, "\n\t}}")
     }
 }
 

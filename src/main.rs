@@ -48,7 +48,7 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
 use crate::{
     memory::paging::{PageAlignedAddress, CR0},
     peripherals::uart::{print, println},
-    structures::{GlobalDescriptorTable, TaskStateSegment},
+    structures::{GlobalDescriptorTable, SaveGlobalDescriptorTableResult, TaskStateSegment},
 };
 
 use core::arch::asm;
@@ -152,14 +152,11 @@ fn kentry(mmap: &[MemoryDescriptor]) -> ! {
         core::ptr::null_mut(),
     );
 
-    let gdt_data = [0u8; 10];
-    let addr = gdt_data.as_ptr() as usize;
-    unsafe {
-        asm!("sgdt [{}]", in(reg) addr);
-    }
+    let gdt_res = SaveGlobalDescriptorTableResult::get();
 
-    let gdt = usize::from_le_bytes(gdt_data[0..8].try_into().unwrap());
-    let gdt = unsafe { &mut *(gdt as *mut GlobalDescriptorTable) };
+    let gdt = GlobalDescriptorTable::from_existing(gdt_res);
+
+    println!("{:#?}", gdt);
 
     loop {
         let mut uart = crate::peripherals::UART.lock();
