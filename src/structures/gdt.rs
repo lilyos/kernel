@@ -60,13 +60,11 @@ impl TSSAccessByte {
 
 impl core::fmt::Debug for TSSAccessByte {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "TSSAccessByte {{\n\ttype: {},\n\tdescriptor_level: {},\n\tpresent: {},\n\t}}",
-            self.get_type(),
-            self.get_descriptor_level(),
-            self.get_present()
-        )
+        f.debug_struct("TSSAccessByte")
+            .field("type", &format_args!("0x{:x}", self.get_type()))
+            .field("descriptor_level", &self.get_descriptor_level())
+            .field("present", &self.get_present())
+            .finish()
     }
 }
 
@@ -188,10 +186,18 @@ impl CodeDataAccessByte {
 
 impl core::fmt::Debug for CodeDataAccessByte {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "CodeDataAccessByte {{\n\taccessed: {},\n\tread_write: {},\n\tdirection: {},\n\texecutable: {},\n\tdescriptor_level: {},\n\tpresent: {},\n\t}}", self.get_accessed(), self.get_read_write(), self.get_direction(), self.get_executable(), self.get_descriptor_level() ,self.get_present())
+        f.debug_struct("CodeDataAccessByte")
+            .field("accessed", &self.get_accessed())
+            .field("read_write", &self.get_read_write())
+            .field("direction", &self.get_direction())
+            .field("executable", &self.get_executable())
+            .field("descriptor_level", &self.get_descriptor_level())
+            .field("present", &self.get_present())
+            .finish()
     }
 }
 
+#[derive(Clone, Copy)]
 /// An undetermined type of access byte
 pub union AccessByte {
     /// If it's for a TSS
@@ -227,9 +233,9 @@ impl AccessByte {
 impl core::fmt::Debug for AccessByte {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.is_code_or_data() {
-            write!(f, "{:?}", unsafe { self.code })
+            write!(f, "{:#?}", unsafe { self.code })
         } else {
-            write!(f, "{:?}", unsafe { self.tss })
+            write!(f, "{:#?}", unsafe { self.tss })
         }
     }
 }
@@ -245,7 +251,7 @@ pub struct SegmentDescriptor {
     /// Bytes 4-7 of the base
     pub base2: u8,
     /// The access byte, determining what the segment is used for
-    pub access_byte: u8,
+    pub access_byte: AccessByte,
     /// Limit is the lower four bits, flags is the upper four bits
     flags_and_limit: u8,
     /// Bytes 8-11 of the base
@@ -262,7 +268,7 @@ impl SegmentDescriptor {
             limit: 0,
             base1: 0,
             base2: 0,
-            access_byte: 0,
+            access_byte: AccessByte { raw: 0 },
             flags_and_limit: 0,
             base3: 0,
             base4: 0,
@@ -314,7 +320,18 @@ impl SegmentDescriptor {
 
 impl core::fmt::Debug for SegmentDescriptor {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "SegmentDescriptor {{\n\tlimit: 0x{:x},\n\tbase: 0x{:x},\n\taccess_byte: {:?},\n\tflags: 0x{:x},\n\tlimit: 0x{:x},\n}}", self.get_limit(), self.get_base(), self.access_byte, self.get_flags(), self.get_limit())
+        f.debug_struct("SegmentDescriptor")
+            .field(
+                "limit",
+                &format_args!("0x{:x}", unsafe {
+                    core::ptr::addr_of!(self.limit).read_unaligned()
+                }),
+            )
+            .field("base", &format_args!("0x{:x}", self.get_base()))
+            .field("access_byte", &self.access_byte)
+            .field("flags", &format_args!("0x{:x}", self.get_flags()))
+            .field("limit", &format_args!("0x{:x}", self.get_limit()))
+            .finish_non_exhaustive()
     }
 }
 
@@ -335,6 +352,7 @@ impl SaveGlobalDescriptorTableResult {
     }
 }
 
+#[derive(Debug)]
 #[repr(C)]
 /// A representation of the Global Descriptor Table
 pub struct GlobalDescriptorTable<'a> {
@@ -356,16 +374,6 @@ impl<'a> GlobalDescriptorTable<'a> {
                 )
             },
         }
-    }
-}
-
-impl<'a> core::fmt::Debug for GlobalDescriptorTable<'a> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "GlobalDescriptorTable {{")?;
-        for i in self.entries.iter() {
-            write!(f, "\n\t{:?},", i)?;
-        }
-        write!(f, "\n\t}}")
     }
 }
 

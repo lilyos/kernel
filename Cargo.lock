@@ -16,6 +16,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "kernel-macros",
+ "stivale2",
 ]
 
 [[package]]
@@ -25,6 +26,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
+ "syn",
 ]
 
 [[package]]
@@ -67,6 +69,24 @@ name = "regex-syntax"
 version = "0.6.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
+
+[[package]]
+name = "stivale2"
+version = "0.1.0"
+dependencies = [
+ "kernel-macros",
+]
+
+[[package]]
+name = "syn"
+version = "1.0.86"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a65b3f4ffa0092e9887669db0eae07941f023991ab58ea44da8fe8e2d511c6b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-xid",
+]
 
 [[package]]
 name = "unicode-xid"

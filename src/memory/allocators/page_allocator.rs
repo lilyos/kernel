@@ -3,7 +3,6 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::{
     collections::BitSlice,
     memory::allocators::{align, AllocatorError, MemoryKind},
-    peripherals::uart::println,
     sync::Mutex,
 };
 

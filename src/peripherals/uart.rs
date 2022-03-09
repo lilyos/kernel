@@ -119,11 +119,11 @@ macro_rules! print {
     );
 }
 
-pub(crate) use print;
+pub use print;
 
 macro_rules! println {
     () => (crate::print!("\n"));
-    ($($arg:tt)*) => (crate::print!("{}\n", format_args!($($arg)*)));
+    ($($arg:tt)*) => (crate::peripherals::uart::print!("{}\n", format_args!($($arg)*)));
 }
 
-pub(crate) use println;
+pub use println;

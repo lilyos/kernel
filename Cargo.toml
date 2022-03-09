@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kernel-macros = {path = "../kernel-macros" }
+kernel-macros = { path = "../kernel-macros" }
+stivale2 = { path = "../stivale2" }

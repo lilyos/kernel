@@ -2,7 +2,7 @@ use core::{arch::asm, fmt::Display, marker::PhantomData};
 
 use kernel_macros::bit_field_accessors;
 
-use crate::{memory::allocators::MemoryEntry, peripherals::uart::println, PHYSICAL_ALLOCATOR};
+use crate::{memory::allocators::MemoryEntry, PHYSICAL_ALLOCATOR};
 
 use super::{
     Frame, Page, PhysicalAddress, VirtualAddress, VirtualMemoryManager, VirtualMemoryManagerError,

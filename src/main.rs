@@ -31,6 +31,20 @@ mod structures;
 mod sync;
 mod traits;
 
+mod prelude {
+    pub mod rust_2021 {
+        pub use crate::peripherals::uart::{print, println};
+        pub use core::arch::asm;
+        pub use core::prelude::rust_2021::*;
+        pub use core::prelude::v1::*;
+    }
+}
+
+#[prelude_import]
+pub use prelude::rust_2021::*;
+
+static HEADER: u64 = 0;
+
 /// The Heap Allocator
 #[global_allocator]
 static ALLOCATOR: HeapAllocator = HeapAllocator::new();
@@ -47,7 +61,6 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
 
 use crate::{
     memory::paging::{PageAlignedAddress, CR0},
-    peripherals::uart::{print, println},
     structures::{GlobalDescriptorTable, SaveGlobalDescriptorTableResult, TaskStateSegment},
 };
 
