@@ -5,7 +5,7 @@ mod heap;
 pub use heap::HeapAllocator;
 
 mod uefi_interop;
-pub use uefi_interop::{MemoryDescriptor, MemoryEntry, MemoryKind, MemoryType};
+// pub use uefi_interop::{MemoryDescriptor, MemoryEntry, MemoryKind, MemoryType};
 
 mod traits;
 pub use traits::{AllocatorError, PhysicalAllocator, PhysicalAllocatorImpl};

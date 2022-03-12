@@ -2,31 +2,32 @@ use core::{
     arch::asm,
     fmt::{Error, Write},
 };
-// use core::ptr::{read_volatile, write_volatile};
 
 use crate::traits::Init;
 
-// use super::cpu::delay;
-
-// Uart struct storing a lot of pointers for various things
+/// Uart structure for reading and writing to itself
 pub struct Uart {}
 
 const COM_1: u16 = 0x3F8;
 
 #[allow(dead_code)]
 impl Uart {
+    /// Construct a new UART instance. There should be no more than one
     pub const fn new() -> Self {
         Uart {}
     }
 
+    /// Check if the outbound fifo is full
     fn write_full(&self) -> bool {
         (inb(COM_1 + 5) & 0x20) == 0
     }
 
+    /// Check if the inbound fifo is empty
     fn read_empty(&self) -> bool {
         inb(COM_1 + 5) & 1 == 0
     }
 
+    /// Read a byte from the UART
     pub fn read_byte(&mut self) -> u8 {
         loop {
             if self.read_empty() {
@@ -38,6 +39,7 @@ impl Uart {
         inb(COM_1)
     }
 
+    /// Write a byte to the UART
     pub fn write_byte(&mut self, c: u8) {
         loop {
             if self.write_full() {
@@ -51,6 +53,7 @@ impl Uart {
     }
 }
 
+/// Write a byte wide value to a port
 fn outb(val: u8, port: u16) {
     unsafe {
         asm!(
@@ -61,6 +64,7 @@ fn outb(val: u8, port: u16) {
     }
 }
 
+/// Read a byte wide value from a port
 fn inb(port: u16) -> u8 {
     let result: u8;
     unsafe {
@@ -108,22 +112,3 @@ impl Write for Uart {
         Ok(())
     }
 }
-
-macro_rules! print {
-    ($($arg:tt)*) => (
-        {
-            use core::fmt::Write;
-            let mut uart = crate::peripherals::UART.lock();
-            uart.write_fmt(format_args!($($arg)*)).unwrap();
-        }
-    );
-}
-
-pub use print;
-
-macro_rules! println {
-    () => (crate::print!("\n"));
-    ($($arg:tt)*) => (crate::peripherals::uart::print!("{}\n", format_args!($($arg)*)));
-}
-
-pub use println;

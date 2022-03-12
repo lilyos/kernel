@@ -3,9 +3,12 @@ use core::{
     ops::{Index, IndexMut},
 };
 
+/// Entry types for the GDT in long mode
 #[repr(u8)]
 pub enum EntryType {
+    /// If the entry is a LDT
     Ldt = 0x2,
+    /// If the entry is a TSS
     Tss = 0x9,
 }
 
@@ -335,13 +338,17 @@ impl core::fmt::Debug for SegmentDescriptor {
     }
 }
 
+/// Results from SGDT
 #[repr(packed)]
 pub struct SaveGlobalDescriptorTableResult {
+    /// The limit of the GDT
     pub limit: u16,
+    /// The base address of the GDT
     pub base: u64,
 }
 
 impl SaveGlobalDescriptorTableResult {
+    /// Get the current GDT
     pub fn get() -> Self {
         let mut tmp = SaveGlobalDescriptorTableResult { limit: 0, base: 0 };
         let ptr = &mut tmp as *mut SaveGlobalDescriptorTableResult;
@@ -352,7 +359,7 @@ impl SaveGlobalDescriptorTableResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[repr(C)]
 /// A representation of the Global Descriptor Table
 pub struct GlobalDescriptorTable<'a> {
@@ -360,11 +367,7 @@ pub struct GlobalDescriptorTable<'a> {
 }
 
 impl<'a> GlobalDescriptorTable<'a> {
-    /// Returns an empty Global Descriptor Table
-    pub fn new() -> Self {
-        Self { entries: &mut [] }
-    }
-
+    /// Create a global descriptor table from an exist SaveGlobalDescriptorTableResult
     pub fn from_existing(res: SaveGlobalDescriptorTableResult) -> Self {
         Self {
             entries: unsafe {

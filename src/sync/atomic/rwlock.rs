@@ -2,6 +2,7 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU32, Ordering};
 
+/// A RWLock, allowing either many readers or one writer
 #[derive(Debug)]
 pub struct RwLock<T: ?Sized> {
     write_lock: UnsafeCell<bool>,
@@ -31,6 +32,10 @@ impl<T> RwLock<T> {
         *inner = val;
     }
 
+    /// Create a new RWLock
+    ///
+    /// # Arguments
+    /// * `value` - The initial value to use
     pub const fn new(value: T) -> Self {
         RwLock {
             write_lock: UnsafeCell::new(false),
@@ -39,7 +44,7 @@ impl<T> RwLock<T> {
         }
     }
 
-    // Try to get write lock
+    /// Try to get the write lock
     pub fn try_lock(&self) -> Option<WriteLockGuard<T>> {
         // Check if any read locks are present
         if self.read_locks.load(Ordering::Relaxed) > 0 {
@@ -55,7 +60,7 @@ impl<T> RwLock<T> {
         }
     }
 
-    // Get write lock to the data, won't work unless there's no read locks
+    /// Get write lock to the data, won't work unless there's no read locks
     pub fn lock(&self) -> WriteLockGuard<T> {
         loop {
             if let Some(write_guard) = self.try_lock() {
@@ -64,7 +69,7 @@ impl<T> RwLock<T> {
         }
     }
 
-    // Check if data is available to read, returning none if not
+    /// Check if data is available to read, returning none if not
     pub fn try_read(&self) -> Option<ReadLockGuard<T>> {
         if self.get_write_lock() {
             None
@@ -74,7 +79,7 @@ impl<T> RwLock<T> {
         }
     }
 
-    // Wait until data is available, then return it
+    /// Wait until data is available, then return it
     pub fn read(&self) -> ReadLockGuard<T> {
         loop {
             if let Some(read_guard) = self.try_read() {
@@ -83,12 +88,15 @@ impl<T> RwLock<T> {
         }
     }
 
-    // Reference to inner data, only safe when used once and then goes out of scope
+    /// Reference to inner data, only safe when used once and then goes out of scope
+    ///
+    /// # Safety
+    /// There must be no `&mut` references in existence
     pub unsafe fn as_ref_unchecked(&self) -> &T {
         &*self.data.get()
     }
 
-    // Mutex into inner value
+    /// Mutex into inner value
     pub fn into_inner(self) -> T
     where
         T: Sized,

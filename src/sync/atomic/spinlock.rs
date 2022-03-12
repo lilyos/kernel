@@ -3,18 +3,21 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+/// A spinlock
 #[derive(Debug)]
 pub struct Spinlock {
     flag: AtomicBool,
 }
 
 impl Spinlock {
+    /// Create a new spinlock
     pub const fn new() -> Spinlock {
         Spinlock {
             flag: AtomicBool::new(false),
         }
     }
 
+    /// Spin to acquire the lock
     #[inline]
     pub fn aquire(&self) {
         // Set lock if previously not
@@ -27,6 +30,7 @@ impl Spinlock {
         }
     }
 
+    /// Release the lock
     #[inline]
     pub fn release(&self) {
         self.flag.store(false, Ordering::SeqCst);

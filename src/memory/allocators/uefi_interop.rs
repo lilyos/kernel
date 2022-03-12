@@ -3,6 +3,7 @@ use super::align;
 #[allow(non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// The `uefi-rs` memory types
 pub enum MemoryType {
     /// This enum variant is not used.
     RESERVED = 0,
@@ -60,18 +61,27 @@ pub struct MemoryDescriptor {
     att: u64,
 }
 
+/// The memory kinds
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum MemoryKind {
+    /// The memory is reserved
     Reserve,
+    /// The memory can be reclaimed
     Reclaim,
+    /// The memory can be reclaimed after parsing the ACPI tables
     ACPIReclaim,
+    /// The memory cannot be reclaimed because it's in use by ACPI
     ACPINonVolatile,
 }
 
 #[derive(Debug, Copy, Clone)]
+/// The `uefi-rs` memory entry
 pub struct MemoryEntry {
+    /// The memory start address
     pub start: usize,
+    /// The memory end address
     pub end: usize,
+    /// The memory kind
     pub kind: MemoryKind,
     _ok: MemoryType,
 }

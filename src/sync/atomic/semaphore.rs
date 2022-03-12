@@ -1,24 +1,31 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+pub enum SemaphoreError {
+    /// The amount of tickets has been exhausted
+    TicketsExhausted,
+}
+
+/// Semaphore (It distributes tickets)
 #[derive(Debug)]
 pub struct Semaphore {
     count: AtomicU32,
 }
 
 impl Semaphore {
+    /// Create a new semaphore with the intial ticket count `initial`
     pub const fn new(initial: u32) -> Semaphore {
         Semaphore {
             count: AtomicU32::new(initial),
         }
     }
 
-    // Increase count
+    /// Increase count
     #[inline]
     pub fn up(&self) {
         self.count.fetch_add(1, Ordering::AcqRel);
     }
 
-    // Decrease count
+    /// Decrease count
     #[inline]
     pub fn down(&self) {
         loop {
@@ -28,9 +35,9 @@ impl Semaphore {
         }
     }
 
-    // Try to decrease semaphore value
+    /// Try to decrease semaphore value
     #[inline]
-    pub fn try_down(&self) -> Result<(), ()> {
+    pub fn try_down(&self) -> Result<(), SemaphoreError> {
         let mut value = self.count.load(Ordering::Acquire);
         if value > 0 {
             value -= 1;
@@ -38,8 +45,7 @@ impl Semaphore {
 
             Ok(())
         } else {
-            self.count.store(value, Ordering::Release);
-            Err(())
+            Err(SemaphoreError::TicketsExhausted)
         }
     }
 }

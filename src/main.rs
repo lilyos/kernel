@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(
-    const_fn_trait_bound,
     panic_info_message,
     lang_items,
     asm_sym,
@@ -11,29 +10,73 @@
     const_mut_refs,
     associated_type_bounds,
     generic_associated_types,
-    associated_type_defaults
+    associated_type_defaults,
+    prelude_import,
+    ptr_metadata
 )]
 #![feature(default_alloc_error_handler)]
 #![warn(missing_docs)]
 
 //! This is the Lotus kernel
 
-mod collections;
-mod memory;
+/// Collections used across the kernel
+pub mod collections;
+
+/// Structures relating to memory management
+pub mod memory;
+
+/// Peripheral code
+pub mod peripherals;
+
+/// Structures for task switching, the GDT, and so forth
+pub mod structures;
+
+/// Structures for atomic operations
+pub mod sync;
+
+/// Traits for various things
+pub mod traits;
 
 use memory::{
-    allocators::{HeapAllocator, MemoryDescriptor, PageAllocator, PhysicalAllocator},
+    allocators::{HeapAllocator, PageAllocator, PhysicalAllocator},
     paging::{MemoryManager, MemoryManagerImpl},
 };
 
-mod peripherals;
-mod structures;
-mod sync;
-mod traits;
+use stivale2::boot::{
+    header::{
+        Stivale2HeaderBootloaderToKernel, Stivale2HeaderFlagsBuilder,
+        Stivale2HeaderKernelToBootloader,
+    },
+    tags::{
+        headers::{AnyVideoHeader, UnmapNull, SMP},
+        structures::MemoryMapStructure,
+        BaseTag,
+    },
+};
 
 mod prelude {
     pub mod rust_2021 {
-        pub use crate::peripherals::uart::{print, println};
+        mod print_macros {
+            #[macro_export]
+            /// The print macro
+            macro_rules! print {
+                ($($arg:tt)*) => (
+                    {
+                        use core::fmt::Write;
+                        let mut uart = crate::peripherals::UART.lock();
+                        uart.write_fmt(format_args!($($arg)*)).unwrap();
+                    }
+                );
+            }
+
+            #[macro_export]
+            /// The println macro, literally just the print macro + a line return
+            macro_rules! println {
+                () => (crate::print!("\n"));
+                ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
+            }
+        }
+        pub use crate::{print, println};
         pub use core::arch::asm;
         pub use core::prelude::rust_2021::*;
         pub use core::prelude::v1::*;
@@ -43,7 +86,36 @@ mod prelude {
 #[prelude_import]
 pub use prelude::rust_2021::*;
 
-static HEADER: u64 = 0;
+#[used]
+#[no_mangle]
+#[link_section = ".stivale2hdr"]
+static HEADER: Stivale2HeaderKernelToBootloader = Stivale2HeaderKernelToBootloader {
+    entry_point: 0,
+    stack: 0,
+    flags: Stivale2HeaderFlagsBuilder::new()
+        .protected_memory_regions(true)
+        .upgrade_higher_half(true)
+        .virtual_kernel_mappings(true)
+        .finish(),
+    tags: &ANY_VIDEO as *const AnyVideoHeader as *const (),
+};
+
+static ANY_VIDEO: AnyVideoHeader = AnyVideoHeader {
+    identifier: AnyVideoHeader::IDENTIFIER,
+    next: &UNMAP_NULL as *const UnmapNull as *const (),
+    preference: 0,
+};
+
+static UNMAP_NULL: UnmapNull = UnmapNull {
+    identifier: UnmapNull::IDENTIFIER,
+    next: &SMP as *const SMP as *const (),
+};
+
+static SMP: SMP = SMP {
+    identifier: SMP::IDENTIFIER,
+    next: core::ptr::null(),
+    flags: 1,
+};
 
 /// The Heap Allocator
 #[global_allocator]
@@ -60,7 +132,7 @@ static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
     MemoryManager::new(MemoryManagerImpl::new());
 
 use crate::{
-    memory::paging::{PageAlignedAddress, CR0},
+    memory::paging::CR0,
     structures::{GlobalDescriptorTable, SaveGlobalDescriptorTableResult, TaskStateSegment},
 };
 
@@ -71,26 +143,32 @@ extern crate alloc;
 /// The kernel entrypoint, gets the memory descriptors then passes them to kernel main
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let mmap_ptr: *mut MemoryDescriptor;
-    let len: usize;
+    let ptr: *const Stivale2HeaderBootloaderToKernel = core::ptr::null();
     unsafe {
-        asm!(
-            "mov {}, r9",
-            "mov {}, r10",
-            out(reg) mmap_ptr,
-            out(reg) len,
-        );
+        asm!("mov {}, rdi", in(reg) ptr);
     }
-    let mmap = unsafe { core::slice::from_raw_parts(mmap_ptr, len) };
-    kentry(mmap)
+    let hdr = unsafe { &*ptr };
+    kentry(hdr)
 }
 
 /// The kernel main loop
 #[no_mangle]
-fn kentry(mmap: &[MemoryDescriptor]) -> ! {
+fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
     println!("`Println!` functioning!");
 
-    unsafe { PHYSICAL_ALLOCATOR.init(mmap).unwrap() };
+    let mut mmap: Option<&MemoryMapStructure> = None;
+
+    let mut ptr = header.tags;
+    while !ptr.is_null() {
+        let mmap_t: Result<&MemoryMapStructure, &str> =
+            MemoryMapStructure::try_from(unsafe { &*ptr });
+        if let Ok(v) = mmap_t {
+            mmap = Some(v);
+        }
+        ptr = unsafe { (*header.tags).next as *const BaseTag }
+    }
+
+    unsafe { PHYSICAL_ALLOCATOR.init(mmap.unwrap()).unwrap() };
 
     // PHYSICAL_ALLOCATOR.get_buddies();
 
@@ -142,7 +220,7 @@ fn kentry(mmap: &[MemoryDescriptor]) -> ! {
 
     println!("that was equal, so my virt to phys works ig :v");
 
-    unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
+    unsafe { MEMORY_MANAGER.init(mmap.unwrap()).unwrap() }
 
     let mutex = sync::Mutex::new(9);
     {
@@ -159,7 +237,8 @@ fn kentry(mmap: &[MemoryDescriptor]) -> ! {
     unsafe {
         asm!("mov {}, rsp", out(reg) esp);
     }
-    let tss = TaskStateSegment::new_no_ports(
+
+    let _tss = TaskStateSegment::new_no_ports(
         esp as *mut u8,
         core::ptr::null_mut(),
         core::ptr::null_mut(),

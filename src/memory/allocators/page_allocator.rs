@@ -1,12 +1,12 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use stivale2::boot::tags::structures::{MMapEntryKind, MemoryMapStructure};
+
 use crate::{
     collections::BitSlice,
-    memory::allocators::{align, AllocatorError, MemoryKind},
+    memory::allocators::{align, traits::PhysicalAllocatorImpl, AllocatorError},
     sync::Mutex,
 };
-
-use super::{MemoryDescriptor, MemoryEntry, PhysicalAllocatorImpl};
 
 /// The Lotus OS Page Allocator
 pub struct PageAllocator<'a> {
@@ -139,43 +139,45 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
     /// let alloc = PageAllocator::new();
     /// unsafe { alloc.init(mmap) }
     /// ```
-    unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> Result<(), AllocatorError> {
-        assert!(!mmap.is_empty());
-        let mut pages = 0;
-        let mut end = 0;
+    unsafe fn init(&self, mmap: &MemoryMapStructure) -> Result<(), AllocatorError> {
+        assert!(mmap.length != 0);
+        let mut pages: usize = 0;
+        let mut end: usize = 0;
 
-        for i in mmap.iter() {
-            let mentry: MemoryEntry = i.into();
-            if mentry.end > end {
-                end = mentry.end;
+        for mentry in mmap.memmap.iter() {
+            let mend: usize = mentry.end().try_into().unwrap();
+            if mend > end {
+                end = mend as usize;
             }
-            pages += (mentry.end - mentry.start) / Self::BLOCK_SIZE;
+            pages += (mend - TryInto::<usize>::try_into(mentry.base).unwrap()) / Self::BLOCK_SIZE;
         }
         let scratch_bytes = align(end / 4096, 8) / 8;
         self.pages.store(pages, Ordering::SeqCst);
 
-        let scratch_entry = mmap.iter().find(|i| i.phys_start >= 4096).unwrap();
+        let scratch_entry = mmap.memmap.iter().find(|i| i.base >= 4096).unwrap();
 
-        let scratch_start: usize = scratch_entry.phys_start.try_into().unwrap();
+        let scratch_start: usize = scratch_entry.base.try_into().unwrap();
 
         let scratch_end = align(scratch_start + scratch_bytes, Self::BLOCK_SIZE) - 1;
 
         {
             let mut sscratch = self.scratch.lock();
             sscratch.init(scratch_start as *mut u8, scratch_bytes);
-            for i in mmap.iter().map(MemoryEntry::from) {
-                for a in (i.start..i.end).step_by(4096) {
+            for i in mmap.memmap.iter() {
+                for a in (i.base..i.end()).step_by(4096) {
+                    let a: usize = a.try_into().unwrap();
                     if a < 4096
                         || (a >= scratch_start && a < scratch_end)
-                        || i.kind == MemoryKind::Reserve
-                        || i.kind == MemoryKind::ACPINonVolatile
+                        || i.kind == MMapEntryKind::Reserved
+                        || i.kind == MMapEntryKind::ACPINvs
+                        || i.kind == MMapEntryKind::BadMemory
+                        || i.kind == MMapEntryKind::Framebuffer
+                        || i.kind == MMapEntryKind::KernelAndModules
                     {
                         sscratch.set(a / 4096, true)
                     }
                 }
             }
-
-            assert!(sscratch[0], "The first page wasn't marked used");
         }
 
         println!("{}/{} usable", pages - self.get_used(), pages);

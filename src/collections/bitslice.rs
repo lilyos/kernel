@@ -45,6 +45,7 @@ impl<'a> Iterator for BitSliceIter<'a> {
 /// ```
 #[derive(Debug)]
 pub struct BitSlice<'a> {
+    /// The inner data of the bitslice
     pub data: &'a mut [u8],
 }
 
@@ -81,6 +82,9 @@ impl<'a> BitSlice<'a> {
     /// bits.set[1] = true;
     /// assert!(bits[1]);
     /// ```
+    ///
+    /// # Safety
+    /// All data is overwritten, and it is expected that these writes should succeed
     pub unsafe fn init(&mut self, start: *mut u8, size: usize) {
         self.data = core::slice::from_raw_parts_mut(start, size);
         self.data.fill(0);
@@ -93,6 +97,8 @@ impl<'a> BitSlice<'a> {
     /// # Arguments
     /// * `start` - A pointer to the data to use
     /// * `size` - The len of the data referenced by `start`
+    /// # Safety
+    /// All data is overwritten, and it is expected that these writes should succeed
     pub unsafe fn new_from_init(&mut self, start: *mut u8, size: usize) {
         self.data = core::slice::from_raw_parts_mut(start, size);
     }
@@ -124,6 +130,7 @@ impl<'a> BitSlice<'a> {
         self.data[index] = (!val as u8 ^ self.data[index]) ^ (1 << bit);
     }
 
+    /// Provide an iter over the bitslice
     pub fn iter(&self) -> BitSliceIter {
         BitSliceIter::new(self)
     }

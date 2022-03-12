@@ -1,21 +1,33 @@
 use core::marker::PhantomData;
 
 use kernel_macros::bit_field_accessors;
+use stivale2::boot::tags::structures::MemoryMapStructure;
 
-use crate::memory::allocators::{is_address_canonical, MemoryDescriptor};
+use crate::memory::allocators::is_address_canonical;
 
+/// A virtual address
 pub type VirtualAddress = *mut u8;
+
+/// A physical address
 pub type PhysicalAddress = *mut u8;
 
+/// Errors from PageAlignedAddress
+#[derive(Debug)]
+pub enum PageAlignedAddressError {
+    /// The address was unaligned
+    AddressUnaligned,
+}
+
+/// A page aligned address
 #[derive(Debug, Clone, Copy)]
 pub struct PageAlignedAddress<L>(pub *mut u8, PhantomData<L>);
 
 impl<L> PageAlignedAddress<L> {
     /// Make a new page-aligned virtual address
     /// This will return an error if it's not page aligned. Duh.
-    pub fn new(address: *mut u8) -> Result<Self, ()> {
+    pub fn new(address: *mut u8) -> Result<Self, PageAlignedAddressError> {
         if address as usize % 4096 != 0 {
-            Err(())
+            Err(PageAlignedAddressError::AddressUnaligned)
         } else {
             Ok(Self(address, PhantomData))
         }
@@ -39,6 +51,7 @@ pub enum VirtualMemoryManagerError {
     PageNotFound,
 }
 
+/// The trait that a Virtual Memory Maager must implement
 pub trait VirtualMemoryManager {
     /// Result type for the virtual memory manager
     type VMMResult<T> = Result<T, VirtualMemoryManagerError>;
@@ -47,7 +60,10 @@ pub trait VirtualMemoryManager {
     ///
     /// # Arguments
     /// * `mmap` - A slice of MemoryDescriptor
-    unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> Self::VMMResult<()>;
+    ///
+    /// # Safety
+    /// The mmap must be correctly formed and all writes and reads must be able succeed
+    unsafe fn init(&self, mmap: &MemoryMapStructure) -> Self::VMMResult<()>;
 
     /// Convert a virtual address to a physical address
     ///
@@ -88,7 +104,10 @@ where
     ///
     /// # Arguments
     /// * `mmap` - A slice of MemoryDescriptor
-    pub unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> T::VMMResult<()> {
+    ///
+    /// # Safety
+    /// The mmap must be properly formed and all reads and writes must be able to succeed
+    pub unsafe fn init(&self, mmap: &MemoryMapStructure) -> T::VMMResult<()> {
         self.0.init(mmap)
     }
 
@@ -125,6 +144,7 @@ where
     }
 }
 
+/// An address to a frame
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct Frame(pub u64);
@@ -136,6 +156,7 @@ impl From<u64> for Frame {
 }
 
 impl Frame {
+    /// The physical address mask
     pub const BIT_52_ADDRESS: u64 = 0x000F_FFFF_FFFF_F000;
 
     bit_field_accessors! {
@@ -154,6 +175,7 @@ impl Frame {
         no_execute 63;
     }
 
+    /// Create a new frame from a physical address and set it present and writable
     pub fn new(address: PhysicalAddress) -> Self {
         let mut tmp = Self(address as u64);
         tmp.set_present();
@@ -161,11 +183,13 @@ impl Frame {
         tmp
     }
 
+    /// Get the contained address
     pub fn address(&self) -> PhysicalAddress {
         (self.0 & Self::BIT_52_ADDRESS) as *mut u8
     }
 }
 
+/// An address to a page
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Page(pub u64);
@@ -177,6 +201,7 @@ impl From<u64> for Page {
 }
 
 impl Page {
+    /// The physical address mask
     pub const BIT_52_ADDRESS: u64 = 0x000F_FFFF_FFFF_F000;
 
     bit_field_accessors! {
@@ -195,6 +220,7 @@ impl Page {
         no_execute 63;
     }
 
+    /// Create a new page
     pub fn new(address: VirtualAddress) -> Self {
         if !is_address_canonical(address as usize, 48) {
             panic!("The address is non-canonical")
@@ -205,10 +231,12 @@ impl Page {
         tmp
     }
 
+    /// Get the contained address
     pub fn address(&self) -> VirtualAddress {
         (self.0) as *mut u8
     }
 
+    /// Get a page-aligned address containing the stored value
     pub fn base_address(&self) -> PageAlignedAddress<VirtualAddress> {
         PageAlignedAddress::new((self.0 & Self::BIT_52_ADDRESS) as *mut u8).unwrap()
     }

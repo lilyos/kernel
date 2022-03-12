@@ -1,0 +1,39 @@
+[tasks.copy]
+args = ["./target/x86_64-unknown-none/debug/kernel", "../mock/EFI/lotus/bud", "-Force"]
+command = "copy.exe"
+dependencies = ["build"]
+
+[tasks.copy-release]
+args = ["./target/x86_64-unknown-none/release/kernel", "../mock/EFI/lotus/bud", "-Force"]
+command = "Move-Item"
+dependencies = ["build-release"]
+
+[tasks.qemu]
+args = [
+  "run",
+  "qemu-system-x86_64",
+  "-bios /usr/share/ovmf/OVMF.fd",
+  "-nodefaults",
+  "-display gtk",
+  "-vga std",
+  "-drive file=fat:rw:./mock,media=disk,format=raw",
+  "-serial mon:stdio",
+  "-nographic",
+]
+command = "ubuntu.exe"
+dependencies = ["copy"]
+
+[tasks.qemu-release]
+args = [
+  "run",
+  "qemu-system-x86_64",
+  "-bios /usr/share/ovmf/OVMF.fd",
+  "-nodefaults",
+  "-display gtk",
+  "-vga std",
+  "-drive file=fat:rw:./mock,media=disk,format=raw",
+  "-serial mon:stdio",
+  "-nographic",
+]
+command = "ubuntu.exe"
+dependencies = ["copy-release"]

@@ -82,12 +82,16 @@ impl HeapAllocator {
     }
 
     /// Initialize the heap allocator
+    ///
     /// # Example
     /// ```
     /// // Assume that heap_start is a *mut u8 and that heap_size is its length in bytes
     /// let heap = HeapAllocator::new();
     /// unsafe { heap.init(heap_start, heap_size) }
     /// ```
+    ///
+    /// # Safety
+    /// The provided region must not overlap with any important data
     pub unsafe fn init(&self, start: *mut u8, size: usize) -> Result<(), AllocatorError> {
         {
             let mut storage = self.storage.lock();
@@ -102,6 +106,9 @@ impl HeapAllocator {
     /// # Arguments
     /// * `addr` - The address of the free region
     /// * `size` - The size of the free region
+    ///
+    /// # Safety
+    /// The provided region must not overlap with any important data
     pub unsafe fn add_free_region(&self, addr: *mut u8, size: usize) -> Result<(), AllocatorError> {
         self.join_nearby();
         let items = &mut *self.storage.lock();

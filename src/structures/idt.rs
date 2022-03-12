@@ -19,9 +19,12 @@ pub struct InterruptDescriptor {
 }
 
 impl InterruptDescriptor {
+    /// If the interrupt is for an interrupt
     const INTERRUPT_GATE: u8 = 0xE;
+    /// If the interrupt is for a trap
     const TRAP_GATE: u8 = 0xF;
 
+    /// Create a zeroed IDT
     pub fn zeroed() -> Self {
         Self {
             offset_1: 0,
@@ -39,13 +42,21 @@ impl InterruptDescriptor {
 #[repr(C)]
 /// The Interrupt Descriptor Table. It holds 256 entries, from 0-255
 pub struct InterruptDescriptorTable {
+    /// The values
     pub inner: [InterruptDescriptor; 256],
 }
 
 impl InterruptDescriptorTable {
+    /// Creates a new, empty IDT
     pub fn new() -> Self {
         Self {
             inner: [InterruptDescriptor::zeroed(); 256],
         }
+    }
+}
+
+impl Default for InterruptDescriptorTable {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,4 +1,4 @@
-use super::MemoryDescriptor;
+use stivale2::boot::tags::structures::MemoryMapStructure;
 
 /// Errors that can be returned by these allocators.
 #[derive(Debug)]
@@ -22,6 +22,7 @@ pub enum AllocatorError {
     DoubleFree,
 }
 
+/// The trait physical memory allocators must implement
 pub trait PhysicalAllocatorImpl {
     /// Result for Physical Allocators
     type PAResult<T> = Result<T, AllocatorError>;
@@ -30,7 +31,10 @@ pub trait PhysicalAllocatorImpl {
     ///
     /// # Arguments
     /// * `mmap` - Slice of memory descriptors
-    unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> Self::PAResult<()>;
+    ///
+    /// # Safety
+    /// The memory map must be properly formed and non-overlapping
+    unsafe fn init(&self, mmap: &MemoryMapStructure) -> Self::PAResult<()>;
 
     /// Allocate physical memory aligned to page
     ///
@@ -46,6 +50,7 @@ pub trait PhysicalAllocatorImpl {
     fn dealloc(&self, block_start: usize, kilos_allocated: usize) -> Self::PAResult<()>;
 }
 
+/// The x86=64 physical memory allocator
 pub struct PhysicalAllocator<T>(pub T)
 where
     T: PhysicalAllocatorImpl;
@@ -70,7 +75,10 @@ where
     /// let alloc = PageAllocator::new();
     /// unsafe { alloc.init(mmap) }
     /// ```
-    pub unsafe fn init(&self, mmap: &[MemoryDescriptor]) -> T::PAResult<()> {
+    ///
+    /// # Safety
+    /// The mmap must be correctly formed and non-overlapping
+    pub unsafe fn init(&self, mmap: &MemoryMapStructure) -> T::PAResult<()> {
         self.0.init(mmap)
     }
 

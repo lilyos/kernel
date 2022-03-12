@@ -8,12 +8,14 @@ use crate::memory::allocators::AllocatorError;
 /// A Vector-like container that makes use of the phsyical allocator
 #[derive(Debug)]
 pub struct GrowableSlice<T: 'static> {
+    /// The inner storage of the slice
     pub storage: &'static mut [Option<T>],
     block_start: usize,
     blocks_allocated: usize,
 }
 
 impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> {
+    /// Create a new growable slice
     pub const fn new() -> Self {
         Self {
             storage: &mut [],
@@ -36,6 +38,9 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
     /// let data = GrowableSlice::new::<u8>();
     /// unsafe { data.init(start, size) }
     /// ```
+    ///
+    /// # Safety
+    /// All writes must succeed, and the allocated area must be empty, unless you want data gone
     pub unsafe fn init(&mut self) -> Result<(), AllocatorError> {
         let (alloc, block_start) = crate::PHYSICAL_ALLOCATOR.alloc(1)?;
         self.storage = core::slice::from_raw_parts_mut(
@@ -146,7 +151,7 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
         };
         new.fill(None);
 
-        new[0..self.storage.len()].clone_from_slice(&self.storage[..]);
+        new[0..self.storage.len()].clone_from_slice(self.storage);
 
         crate::PHYSICAL_ALLOCATOR.dealloc(self.block_start, self.blocks_allocated)?;
 
@@ -208,6 +213,7 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
         }
     }
 
+    /// Sort the slice in place using the provided function
     pub fn sort<F>(&mut self, fun: F)
     where
         F: FnMut(&Option<T>, &Option<T>) -> Ordering,

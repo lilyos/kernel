@@ -1,8 +1,9 @@
 use core::{arch::asm, fmt::Display, marker::PhantomData};
 
 use kernel_macros::bit_field_accessors;
+use stivale2::boot::tags::structures::MemoryMapStructure;
 
-use crate::{memory::allocators::MemoryEntry, PHYSICAL_ALLOCATOR};
+use crate::PHYSICAL_ALLOCATOR;
 
 use super::{
     Frame, Page, PhysicalAddress, VirtualAddress, VirtualMemoryManager, VirtualMemoryManagerError,
@@ -111,6 +112,7 @@ impl<L: core::fmt::Debug> core::fmt::Debug for PageTableEntry<L> {
 #[repr(align(4096), C)]
 /// Level 4 paging table
 pub struct TableLevel4 {
+    /// Entries in the table
     pub data: [PageTableEntry<TableLevel3>; 512],
 }
 
@@ -145,6 +147,7 @@ impl TableLevel4 {
 #[repr(align(4096), C)]
 /// Level 3 paging table
 pub struct TableLevel3 {
+    /// Entries in the table
     pub data: [PageTableEntry<TableLevel2>; 512],
 }
 
@@ -179,6 +182,7 @@ impl TableLevel3 {
 #[repr(align(4096), C)]
 /// Level 2 paging table
 pub struct TableLevel2 {
+    /// Entries in the table
     pub data: [PageTableEntry<TableLevel1>; 512],
 }
 
@@ -213,6 +217,7 @@ impl TableLevel2 {
 #[repr(align(4096), C)]
 /// Level 1 paging table
 pub struct TableLevel1 {
+    /// Entries in the table
     pub data: [PageTableEntry<Frame>; 512],
 }
 
@@ -282,14 +287,11 @@ impl VirtualMemoryManager for MemoryManagerImpl {
     type VMMResult<T> = Result<T, super::VirtualMemoryManagerError>;
 
     /// Initialize the virtual memory manager
-    unsafe fn init(
-        &self,
-        mmap: &[crate::memory::allocators::MemoryDescriptor],
-    ) -> Self::VMMResult<()> {
-        let max: MemoryEntry = mmap.last().unwrap().into();
-        let begin_at = u64::MAX - max.end as u64;
+    unsafe fn init(&self, mmap: &MemoryMapStructure) -> Self::VMMResult<()> {
+        let max = mmap.memmap.iter().last().unwrap();
+        let begin_at = u64::MAX - max.end() as u64;
         println!("Beginning at 0x{:x}", begin_at);
-        for i in (4096..max.end).step_by(4096) {
+        for i in (4096..max.end()).step_by(4096) {
             let frame = Frame::new(i as *mut u8);
             let page = Page::new((begin_at + i as u64) as *mut u8);
             self.map(frame, page, 0).unwrap();

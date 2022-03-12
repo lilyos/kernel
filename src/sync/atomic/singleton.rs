@@ -5,6 +5,7 @@ use crate::{
     traits::Init,
 };
 
+/// A struct to initialize any contained object with the trait `Init`
 #[derive(Debug)]
 pub struct Singleton<T: Init> {
     ready: AtomicBool,
@@ -12,6 +13,7 @@ pub struct Singleton<T: Init> {
 }
 
 impl<T: Init> Singleton<T> {
+    /// Construct a new instance with the initial value `T`
     pub const fn new(init: T) -> Singleton<T> {
         Singleton {
             ready: AtomicBool::new(false),
@@ -19,6 +21,7 @@ impl<T: Init> Singleton<T> {
         }
     }
 
+    /// Lock the singleton, returning an instance
     pub fn lock(&self) -> MutexGuard<'_, T> {
         self._data.lock()
     }
