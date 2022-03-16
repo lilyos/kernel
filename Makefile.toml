@@ -1,24 +1,34 @@
 [tasks.copy]
-args = ["./target/x86_64-unknown-none/debug/kernel", "../mock/EFI/lotus/bud", "-Force"]
-command = "copy.exe"
 dependencies = ["build"]
+script = '''
+Copy-Item -Force ".\\target\\x86_64-unknown-none\\debug\\kernel" "..\\mock\\EFI\\lotus\\bud"
+'''
+script_extension = "ps1"
+script_runner = "powershell"
 
 [tasks.copy-release]
-args = ["./target/x86_64-unknown-none/release/kernel", "../mock/EFI/lotus/bud", "-Force"]
-command = "Move-Item"
 dependencies = ["build-release"]
+script = '''
+Copy-Item -Force ".\\target\\x86_64-unknown-none\\release\\kernel" "..\\mock\\EFI\\lotus\\bud"
+'''
+script_extension = "ps1"
+script_runner = "powershell"
 
 [tasks.qemu]
 args = [
   "run",
   "qemu-system-x86_64",
+  "-m 1024",
   "-bios /usr/share/ovmf/OVMF.fd",
   "-nodefaults",
   "-display gtk",
   "-vga std",
-  "-drive file=fat:rw:./mock,media=disk,format=raw",
+  "-drive file=fat:rw:../mock,media=disk,format=raw",
   "-serial mon:stdio",
+  "-no-reboot",
+  "-no-shutdown",
   "-nographic",
+  "-D log",
 ]
 command = "ubuntu.exe"
 dependencies = ["copy"]
@@ -27,13 +37,17 @@ dependencies = ["copy"]
 args = [
   "run",
   "qemu-system-x86_64",
+  "-m 1024",
   "-bios /usr/share/ovmf/OVMF.fd",
   "-nodefaults",
   "-display gtk",
   "-vga std",
-  "-drive file=fat:rw:./mock,media=disk,format=raw",
+  "-drive file=fat:rw:../mock,media=disk,format=raw",
   "-serial mon:stdio",
+  "-no-reboot",
+  "-no-shutdown",
   "-nographic",
+  "-D log",
 ]
 command = "ubuntu.exe"
 dependencies = ["copy-release"]

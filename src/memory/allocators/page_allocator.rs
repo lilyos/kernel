@@ -163,6 +163,7 @@ impl<'a> PhysicalAllocatorImpl for PageAllocator<'a> {
         {
             let mut sscratch = self.scratch.lock();
             sscratch.init(scratch_start as *mut u8, scratch_bytes);
+            sscratch.set(0, true);
             for i in mmap.memmap.iter() {
                 for a in (i.base..i.end()).step_by(4096) {
                     let a: usize = a.try_into().unwrap();

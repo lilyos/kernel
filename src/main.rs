@@ -49,7 +49,7 @@ use stivale2::boot::{
     },
     tags::{
         headers::{AnyVideoHeader, UnmapNull, SMP},
-        structures::MemoryMapStructure,
+        structures::{KernelBaseAddressStructure, KernelSlideStructure, MemoryMapStructure},
         BaseTag,
     },
 };
@@ -86,12 +86,14 @@ mod prelude {
 #[prelude_import]
 pub use prelude::rust_2021::*;
 
+static STACK: [u8; 8192] = [0; 8192];
+
 #[used]
 #[no_mangle]
 #[link_section = ".stivale2hdr"]
 static HEADER: Stivale2HeaderKernelToBootloader = Stivale2HeaderKernelToBootloader {
     entry_point: 0,
-    stack: 0,
+    stack: &STACK[8191],
     flags: Stivale2HeaderFlagsBuilder::new()
         .protected_memory_regions(true)
         .upgrade_higher_half(true)
@@ -131,10 +133,7 @@ static PHYSICAL_ALLOCATOR: PhysicalAllocator<PageAllocator> =
 static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
     MemoryManager::new(MemoryManagerImpl::new());
 
-use crate::{
-    memory::paging::CR0,
-    structures::{GlobalDescriptorTable, SaveGlobalDescriptorTableResult, TaskStateSegment},
-};
+use crate::structures::{GlobalDescriptorTable, SaveGlobalDescriptorTableResult, TaskStateSegment};
 
 use core::arch::asm;
 
@@ -143,9 +142,9 @@ extern crate alloc;
 /// The kernel entrypoint, gets the memory descriptors then passes them to kernel main
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let ptr: *const Stivale2HeaderBootloaderToKernel = core::ptr::null();
+    let mut ptr: *const Stivale2HeaderBootloaderToKernel;
     unsafe {
-        asm!("mov {}, rdi", in(reg) ptr);
+        asm!("mov {}, rdi", out(reg) ptr);
     }
     let hdr = unsafe { &*ptr };
     kentry(hdr)
@@ -155,18 +154,26 @@ pub extern "C" fn _start() -> ! {
 #[no_mangle]
 fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
     println!("`Println!` functioning!");
+    println!("Bootloader header: {:?}", HEADER);
 
     let mut mmap: Option<&MemoryMapStructure> = None;
+    let mut addrs: Option<&KernelBaseAddressStructure> = None;
 
     let mut ptr = header.tags;
+
     while !ptr.is_null() {
-        let mmap_t: Result<&MemoryMapStructure, &str> =
-            MemoryMapStructure::try_from(unsafe { &*ptr });
-        if let Ok(v) = mmap_t {
-            mmap = Some(v);
+        if let Ok(val) = MemoryMapStructure::try_from_base(ptr) {
+            mmap = Some(unsafe { &*val });
         }
-        ptr = unsafe { (*header.tags).next as *const BaseTag }
+
+        if let Ok(val) = KernelBaseAddressStructure::try_from(ptr) {
+            addrs = Some(&val);
+        }
+
+        ptr = unsafe { (*ptr).next as *const BaseTag };
     }
+
+    println!("This should be some: {}", mmap.is_some());
 
     unsafe { PHYSICAL_ALLOCATOR.init(mmap.unwrap()).unwrap() };
 
@@ -195,28 +202,24 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
     }
 
     println!("Well, let's try to make some mappings :v");
-    let mut cr0 = CR0::get();
-    cr0.clear_write_protect();
-    cr0.update();
-
-    let cr3: u64;
-    unsafe {
-        asm!("mov {}, cr3", out(reg) cr3);
-    }
-    println!("CR3: 0x{:x}", cr3);
 
     let x = 9u64;
     let x_ptr = &x as *const u64;
+    let x_ptr_phys =
+        (addrs.unwrap().phys_base + (x_ptr as u64 - addrs.unwrap().virt_base)) as *const u64;
     assert!(unsafe { *x_ptr } == x);
 
-    let x_got_ptr = MEMORY_MANAGER.virtual_to_physical(x_ptr as *mut u8);
+    let low_uwu = memory::allocators::align(0xdeadc000, 4096) as *mut u8;
+    let x_got_ptr = MEMORY_MANAGER.virtual_to_physical(low_uwu);
+    println!("Low: {:?}, Got: {:?}", low_uwu, x_got_ptr);
+    assert!(low_uwu == x_got_ptr.unwrap());
 
     println!(
-        "The actual pointer 0x{:x}, what we got: {:?}",
-        x_ptr as usize, x_got_ptr
+        "The actual pointer {:?}, what we got: {:?}",
+        x_ptr_phys, x_got_ptr
     );
 
-    assert!(x_ptr == x_got_ptr.unwrap() as *const u64);
+    assert!(x_ptr_phys == x_got_ptr.unwrap() as *const u64 && unsafe { x_ptr_phys.read() } == x);
 
     println!("that was equal, so my virt to phys works ig :v");
 

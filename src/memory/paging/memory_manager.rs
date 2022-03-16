@@ -314,25 +314,35 @@ impl VirtualMemoryManager for MemoryManagerImpl {
         let p4 = unsafe { Self::get_p4_table() };
 
         let p3 = p4.sub_table(src.p4_index())?;
+        println!("Got P3");
 
         let p2_raw = p3.data[src.p3_index()].clone();
 
         if p2_raw.get_huge_page() && p2_raw.get_present() {
+            println!("P2 Huge: {:?}", p2_raw.address());
             return unsafe { Some(p2_raw.address().add((src.0 & 0x3FFF_FFFF) as usize)) };
         }
 
         let p2 = p3.sub_table(src.p3_index())?;
 
+        println!("Got P2");
+
         let p1_raw = p2.data[src.p2_index()].clone();
 
         if p1_raw.get_present() && p1_raw.get_huge_page() {
-            return unsafe { Some(p1_raw.address().add((src.0 & 0x1F_FFFF) as usize)) };
+            println!("P1 Huge: 0x{:x}", p1_raw.0);
+            println!("P1 Offset: 0x{:x}", p1_raw.0 & 0x1F_FFFF);
+            return unsafe { Some(p1_raw.address().add((p1_raw.0 & 0x1F_FFFF) as usize)) };
         }
 
         let p1 = p2.sub_table(src.p2_index())?;
 
+        println!("Got P1");
+
         let frame = p1.frame(src.p1_index())?;
         let offset = src.frame_offset();
+
+        println!("Offset: 0x{:x}", offset);
 
         Some(unsafe { frame.address().add(offset) } as *mut u8)
     }
