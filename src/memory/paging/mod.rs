@@ -2,9 +2,12 @@
 pub mod memory_manager;
 pub use memory_manager::*;
 
-mod traits;
+/// Traits
+pub mod traits;
 pub use traits::*;
 
-/// CPU structures
-pub mod cpu;
-pub use cpu::*;
+/// Address structures
+pub mod addresses;
+
+/// Table structures
+pub mod tables;

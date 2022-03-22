@@ -49,7 +49,7 @@ use stivale2::boot::{
     },
     tags::{
         headers::{AnyVideoHeader, UnmapNull, SMP},
-        structures::{KernelBaseAddressStructure, KernelSlideStructure, MemoryMapStructure},
+        structures::{KernelBaseAddressStructure, MemoryMapStructure},
         BaseTag,
     },
 };
@@ -167,7 +167,7 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
         }
 
         if let Ok(val) = KernelBaseAddressStructure::try_from(ptr) {
-            addrs = Some(&val);
+            addrs = Some(val);
         }
 
         ptr = unsafe { (*ptr).next as *const BaseTag };
@@ -203,23 +203,22 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
 
     println!("Well, let's try to make some mappings :v");
 
+    assert!(MEMORY_MANAGER
+        .virtual_to_physical(core::ptr::null::<u8>().try_into().unwrap())
+        .is_none());
+
     let x = 9u64;
     let x_ptr = &x as *const u64;
     let x_ptr_phys =
         (addrs.unwrap().phys_base + (x_ptr as u64 - addrs.unwrap().virt_base)) as *const u64;
+    println!("X-PTR: {:?}, X-PTR-PHYS: {:?}", x_ptr, x_ptr_phys);
     assert!(unsafe { *x_ptr } == x);
 
-    let low_uwu = memory::allocators::align(0xdeadc000, 4096) as *mut u8;
-    let x_got_ptr = MEMORY_MANAGER.virtual_to_physical(low_uwu);
-    println!("Low: {:?}, Got: {:?}", low_uwu, x_got_ptr);
-    assert!(low_uwu == x_got_ptr.unwrap());
+    let x_got_ptr =
+        MEMORY_MANAGER.virtual_to_physical((x_ptr_phys as *const u8).try_into().unwrap());
+    println!("Got: {:?}", x_got_ptr);
 
-    println!(
-        "The actual pointer {:?}, what we got: {:?}",
-        x_ptr_phys, x_got_ptr
-    );
-
-    assert!(x_ptr_phys == x_got_ptr.unwrap() as *const u64 && unsafe { x_ptr_phys.read() } == x);
+    assert!(x_ptr_phys as usize == x_got_ptr.unwrap().get_address());
 
     println!("that was equal, so my virt to phys works ig :v");
 
@@ -242,9 +241,9 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
     }
 
     let _tss = TaskStateSegment::new_no_ports(
-        esp as *mut u8,
-        core::ptr::null_mut(),
-        core::ptr::null_mut(),
+        (esp as *mut u8).try_into().unwrap(),
+        core::ptr::null_mut::<u8>().try_into().unwrap(),
+        core::ptr::null_mut::<u8>().try_into().unwrap(),
     );
 
     let gdt_res = SaveGlobalDescriptorTableResult::get();

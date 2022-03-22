@@ -1,16 +1,15 @@
-use crate::{collections::BitSlice, memory::paging::VirtualAddress};
+use crate::{
+    collections::BitSlice,
+    memory::paging::addresses::{Address, Virtual},
+};
 
 /// Task State Segment structure
 #[repr(C, packed)]
 // Page 373
 pub struct TaskStateSegment {
     reserved1: u32,
-    /// The stack pointer to load when jumping to ring 0
-    pub rsp0: VirtualAddress,
-    /// The stack pointer to load when jumping to ring 1
-    pub rsp1: VirtualAddress,
-    /// The stack pointer to load when jumping to ring 2
-    pub rsp2: VirtualAddress,
+    /// The RSPs to load when jumping to a specific level
+    pub rsp: [Address<Virtual>; 3],
     reserved2: u64,
     /// What is this, even?
     pub ists: [u64; 7],
@@ -25,12 +24,14 @@ impl TaskStateSegment {
     pub const BASE_LENGTH: u16 = 103;
 
     /// Create a new TSS with no ports
-    pub fn new_no_ports(rsp0: VirtualAddress, rsp1: VirtualAddress, rsp2: VirtualAddress) -> Self {
+    pub fn new_no_ports(
+        rsp0: Address<Virtual>,
+        rsp1: Address<Virtual>,
+        rsp2: Address<Virtual>,
+    ) -> Self {
         Self {
             reserved1: 0,
-            rsp0,
-            rsp1,
-            rsp2,
+            rsp: [rsp0, rsp1, rsp2],
             reserved2: 0,
             ists: [0; 7],
             reserved3: 0,
