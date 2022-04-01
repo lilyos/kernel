@@ -33,7 +33,8 @@ impl VirtualMemoryManager for MemoryManagerImpl {
     type VMMResult<T> = Result<T, VirtualMemoryManagerError>;
 
     /// Initialize the virtual memory manager
-    unsafe fn init(&self, mmap: &MemoryMapStructure) -> Self::VMMResult<()> {
+    unsafe fn init(&self, _mmap: &MemoryMapStructure) -> Self::VMMResult<()> {
+        /*
         let max = mmap.memmap.iter().last().unwrap();
         let begin_at = u64::MAX - max.end() as u64;
         println!("Beginning at 0x{:x}", begin_at);
@@ -47,6 +48,12 @@ impl VirtualMemoryManager for MemoryManagerImpl {
                 .map_err(|_| VirtualMemoryManagerError::UnalignedAddress)?;
             self.map(frame, page, 0)?;
         }
+        for entry in mmap.memmap.iter() {
+            for i in entry.base..entry.length {
+                let frame =
+            }
+        }
+        */
         Ok(())
     }
 

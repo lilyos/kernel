@@ -12,7 +12,7 @@ pub struct TaskStateSegment {
     pub rsp: [Address<Virtual>; 3],
     reserved2: u64,
     /// What is this, even?
-    pub ists: [u64; 7],
+    pub ists: [Address<Virtual>; 7],
     reserved3: u64,
     reserved4: u16,
     /// Where the IOPB is situated from the base of the tss
@@ -22,6 +22,19 @@ pub struct TaskStateSegment {
 impl TaskStateSegment {
     /// Base size In bytes?
     pub const BASE_LENGTH: u16 = 103;
+
+    /// Create a new blank TSS with no ports
+    pub fn new_blank() -> Self {
+        Self {
+            reserved1: 0,
+            rsp: [Address::<Virtual>::new(core::ptr::null()).unwrap(); 3],
+            reserved2: 0,
+            ists: [Address::<Virtual>::new(core::ptr::null()).unwrap(); 7],
+            reserved3: 0,
+            reserved4: 0,
+            iopb_offset: Self::BASE_LENGTH + 1,
+        }
+    }
 
     /// Create a new TSS with no ports
     pub fn new_no_ports(
@@ -33,7 +46,7 @@ impl TaskStateSegment {
             reserved1: 0,
             rsp: [rsp0, rsp1, rsp2],
             reserved2: 0,
-            ists: [0; 7],
+            ists: [Address::<Virtual>::new(core::ptr::null()).unwrap(); 7],
             reserved3: 0,
             reserved4: 0,
             iopb_offset: Self::BASE_LENGTH + 1,

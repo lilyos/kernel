@@ -1,7 +1,4 @@
-use core::{
-    cmp::Ordering,
-    ops::{Index, IndexMut, Range},
-};
+use core::cmp::Ordering;
 
 use crate::memory::allocators::AllocatorError;
 
@@ -229,34 +226,6 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
         } else {
             a.cmp(b)
         }
-    }
-}
-
-impl<T: 'static> Index<usize> for GrowableSlice<T> {
-    type Output = Option<T>;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.storage[index]
-    }
-}
-
-impl<T: 'static> IndexMut<usize> for GrowableSlice<T> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.storage[index]
-    }
-}
-
-impl<T: 'static> Index<Range<usize>> for GrowableSlice<T> {
-    type Output = [Option<T>];
-
-    fn index(&self, index: Range<usize>) -> &Self::Output {
-        &self.storage[index]
-    }
-}
-
-impl<T: 'static> IndexMut<Range<usize>> for GrowableSlice<T> {
-    fn index_mut(&mut self, index: Range<usize>) -> &mut Self::Output {
-        &mut self.storage[index]
     }
 }
 

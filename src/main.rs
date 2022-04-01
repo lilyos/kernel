@@ -133,7 +133,12 @@ static PHYSICAL_ALLOCATOR: PhysicalAllocator<PageAllocator> =
 static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
     MemoryManager::new(MemoryManagerImpl::new());
 
-use crate::structures::{GlobalDescriptorTable, SaveGlobalDescriptorTableResult, TaskStateSegment};
+/// The kernel's GDT
+static mut GDT: [SegmentDescriptor; 9] = [SegmentDescriptor::new_unused(); 9];
+
+use crate::structures::{
+    GlobalDescriptorTable, SaveGlobalDescriptorTableResult, SegmentDescriptor, TaskStateSegment,
+};
 
 use core::arch::asm;
 
@@ -233,8 +238,6 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
     }
     println!("Dropped mutex!");
 
-    println!("Beginning echo...");
-
     let esp: u64;
     unsafe {
         asm!("mov {}, rsp", out(reg) esp);
@@ -246,12 +249,110 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
         core::ptr::null_mut::<u8>().try_into().unwrap(),
     );
 
+    unsafe {
+        let mut kcode = SegmentDescriptor::new_unused();
+        kcode.set_limit(0xFFFFF);
+        {
+            kcode.access_byte.set_present(true);
+            kcode.access_byte.set_is_code_or_data(true);
+        }
+        let kcab = &mut kcode.access_byte.code;
+        kcab.set_executable();
+        kcab.set_read_write();
+
+        GDT[1] = kcode;
+
+        let mut kdata = SegmentDescriptor::new_unused();
+        kdata.set_limit(0xFFFFF);
+        {
+            kdata.access_byte.set_present(true);
+            kdata.access_byte.set_is_code_or_data(true);
+        }
+        let kdab = &mut kdata.access_byte.code;
+        kdab.set_read_write();
+        kdab.set_present();
+
+        GDT[2] = kdata;
+
+        let mut ucode32 = SegmentDescriptor::new_unused();
+        ucode32.set_limit(0xFFFFF);
+        {
+            ucode32.access_byte.set_present(true);
+            ucode32.access_byte.set_is_code_or_data(true);
+        }
+        let ucab32 = &mut ucode32.access_byte.code;
+        ucab32.set_read_write();
+        ucab32.set_present();
+        ucab32.set_descriptor_level(3);
+
+        GDT[3] = ucode32;
+
+        let mut udata32 = SegmentDescriptor::new_unused();
+        udata32.set_limit(0xFFFFF);
+        {
+            udata32.access_byte.set_present(true);
+            udata32.access_byte.set_is_code_or_data(true);
+        }
+        let udab32 = &mut udata32.access_byte.code;
+        udab32.set_read_write();
+        udab32.set_present();
+        udab32.set_descriptor_level(3);
+
+        GDT[4] = udata32;
+
+        let mut ucode64 = SegmentDescriptor::new_unused();
+        ucode64.set_flags(0b0010);
+        ucode64.set_limit(0xFFFFF);
+        {
+            ucode64.access_byte.set_present(true);
+            ucode64.access_byte.set_is_code_or_data(true);
+        }
+        let ucab64 = &mut ucode64.access_byte.code;
+        ucab64.set_read_write();
+        ucab64.set_present();
+        ucab64.set_descriptor_level(3);
+
+        GDT[5] = ucode64;
+
+        let mut udata64 = SegmentDescriptor::new_unused();
+        udata64.set_limit(0xFFFFF);
+        {
+            udata32.access_byte.set_present(true);
+            udata32.access_byte.set_is_code_or_data(true);
+        }
+        let udab64 = &mut udata64.access_byte.code;
+        udab64.set_read_write();
+        udab64.set_present();
+        udab64.set_descriptor_level(3);
+
+        GDT[6] = udata64;
+    }
+
+    println!("Loading GDT");
+
+    let gdt_ldr = SaveGlobalDescriptorTableResult {
+        limit: { 7 * 8 } - 1,
+        base: unsafe { GDT.as_ptr() as usize as u64 },
+    };
+
+    println!(
+        "Is address canonical: {}",
+        memory::allocators::is_address_canonical(0x0000ffffffffb541, 64)
+    );
+
+    println!("Made object: {:#?}", gdt_ldr);
+
+    GlobalDescriptorTable::apply(gdt_ldr);
+
     let gdt_res = SaveGlobalDescriptorTableResult::get();
+    println!("{:#?}", gdt_res);
 
     let gdt = GlobalDescriptorTable::from_existing(gdt_res);
 
+    println!("GDT entries len: {}", gdt.entries.len());
     println!("{:#?}", gdt);
 
+    println!("Beginning echo...");
     loop {
         let mut uart = crate::peripherals::UART.lock();
         let byte = uart.read_byte();

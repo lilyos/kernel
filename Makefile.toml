@@ -47,7 +47,7 @@ args = [
   "-no-reboot",
   "-no-shutdown",
   "-nographic",
-  "-D log",
+  "-D int",
 ]
 command = "ubuntu.exe"
 dependencies = ["copy-release"]

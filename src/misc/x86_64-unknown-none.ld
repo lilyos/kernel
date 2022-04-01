@@ -10,22 +10,22 @@ SECTIONS {
     .hash : { *(.hash) }
     .dynstr : { *(.dynstr) }
     .rela.dyn : { *(.rela.dyn) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .rodata : { *(.rodata*) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .eh_frame_hdr : { *(.eh_frame_hdr) }
     .eh_frame : { *(.eh_frame) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .text : { *(.text*) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .data.rel.ro : { *(.data.rel.ro*) }
     .dynamic : { *(.dynamic) }
     .got : { *(.got) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .data : { *(.data*) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .bss : { *(.bss*) }
-    . += CONSTANT(MAXPAGESIZE);
+    . = ALIGN(0x1000);
     .comment : { *(.comment) }
     .symtab : { *(.symtab) }
     .shstrtab : { *(.shstrtab) }

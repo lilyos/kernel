@@ -1,5 +1,6 @@
 use core::{
     arch::asm,
+    fmt::Debug,
     ops::{Index, IndexMut},
 };
 
@@ -229,7 +230,14 @@ impl AccessByte {
 
     /// Get if the segment is for a code or data segment
     pub fn is_code_or_data(&self) -> bool {
-        unsafe { (self.raw >> 5) & 0b1 != 0 }
+        unsafe { (self.raw >> 5) & 0b1 == 1 }
+    }
+
+    /// Set the segment type
+    pub fn set_is_code_or_data(&mut self, val: bool) {
+        unsafe {
+            self.raw |= ((val as u8) & 0b1) << 5;
+        }
     }
 }
 
@@ -243,6 +251,11 @@ impl core::fmt::Debug for AccessByte {
     }
 }
 
+/*
+L=0 D=0 for 16 bit
+L=0 D=1 for 32 bit
+L=1 D=0 for 64 bit
+*/
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 /// An entry in the GDT
@@ -266,7 +279,7 @@ pub struct SegmentDescriptor {
 
 impl SegmentDescriptor {
     /// Create a completely zeroed entry, for later modification.
-    pub fn new_unused() -> Self {
+    pub const fn new_unused() -> Self {
         Self {
             limit: 0,
             base1: 0,
@@ -280,23 +293,35 @@ impl SegmentDescriptor {
     }
 
     /// Get the flags
+    ///
+    /// `Flag Values`
+    /// * G: Granularity flag, indicates the size the Limit value is scaled by. If clear (0), the Limit is in 1 Byte blocks (byte granularity). If set (1), the Limit is in 4 KiB blocks (page granularity).
+    /// * DB: Size flag. If clear (0), the descriptor defines a 16-bit protected mode segment. If set (1) it defines a 32-bit protected mode segment. A GDT can have both 16-bit and 32-bit selectors at once.
+    /// * L: Long-mode code flag. If set (1), the descriptor defines a 64-bit code segment. When set, Sz should always be clear. For any other type of segment (other code types or any data segment), it should be clear (0).
     pub fn get_flags(&self) -> u8 {
         (self.flags_and_limit >> 4) & 0xF
     }
 
     /// Set the flags
+    /// `Flag Values`
+    /// * G: Granularity flag, indicates the size the Limit value is scaled by. If clear (0), the Limit is in 1 Byte blocks (byte granularity). If set (1), the Limit is in 4 KiB blocks (page granularity).
+    /// * DB: Size flag. If clear (0), the descriptor defines a 16-bit protected mode segment. If set (1) it defines a 32-bit protected mode segment. A GDT can have both 16-bit and 32-bit selectors at once.
+    /// * L: Long-mode code flag. If set (1), the descriptor defines a 64-bit code segment. When set, Sz should always be clear. For any other type of segment (other code types or any data segment), it should be clear (0).
     pub fn set_flags(&mut self, val: u8) {
         self.flags_and_limit |= val << 4;
     }
 
     /// Get the limit
-    pub fn get_limit(&self) -> u8 {
-        self.flags_and_limit & 0xF
+    pub fn get_limit(&self) -> u32 {
+        (self.flags_and_limit as u32 & 0xF) << 16 | self.limit as u32
     }
 
     /// Set the limit
-    pub fn set_limit(&mut self, val: u8) {
-        self.flags_and_limit |= val & 0xF;
+    pub fn set_limit(&mut self, val: u32) {
+        let l1u16: u16 = (val & 0xFFFF).try_into().unwrap();
+        let l1u8: u8 = ((val >> 4) & 0xF).try_into().unwrap();
+        self.limit = l1u16;
+        self.flags_and_limit |= l1u8 & 0xF;
     }
 
     /// Get the base in the segment
@@ -324,22 +349,16 @@ impl SegmentDescriptor {
 impl core::fmt::Debug for SegmentDescriptor {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SegmentDescriptor")
-            .field(
-                "limit",
-                &format_args!("0x{:x}", unsafe {
-                    core::ptr::addr_of!(self.limit).read_unaligned()
-                }),
-            )
+            .field("limit", &format_args!("0x{:x}", self.get_limit()))
             .field("base", &format_args!("0x{:x}", self.get_base()))
             .field("access_byte", &self.access_byte)
             .field("flags", &format_args!("0x{:x}", self.get_flags()))
-            .field("limit", &format_args!("0x{:x}", self.get_limit()))
             .finish_non_exhaustive()
     }
 }
 
 /// Results from SGDT
-#[repr(packed)]
+#[repr(packed, C)]
 pub struct SaveGlobalDescriptorTableResult {
     /// The limit of the GDT
     pub limit: u16,
@@ -359,24 +378,67 @@ impl SaveGlobalDescriptorTableResult {
     }
 }
 
+impl Debug for SaveGlobalDescriptorTableResult {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SaveGlobalDescriptorTableResult")
+            .field("limit", &unsafe {
+                (self as *const Self as *const u16).read_unaligned()
+            })
+            .field(
+                "base",
+                &format_args!("{:#?}", unsafe {
+                    ((&self as *const _ as *const u16).offset(1) as *const u64).read_unaligned()
+                        as *const u8
+                }),
+            )
+            .finish()
+    }
+}
+
 #[derive(Debug, Default)]
 #[repr(C)]
 /// A representation of the Global Descriptor Table
 pub struct GlobalDescriptorTable<'a> {
-    entries: &'a mut [SegmentDescriptor],
+    /// The entries of the GDT
+    pub entries: &'a mut [SegmentDescriptor],
 }
 
 impl<'a> GlobalDescriptorTable<'a> {
     /// Create a global descriptor table from an exist SaveGlobalDescriptorTableResult
     pub fn from_existing(res: SaveGlobalDescriptorTableResult) -> Self {
+        let limit: usize = ((res.limit + 1) / 8).into();
         Self {
             entries: unsafe {
-                core::slice::from_raw_parts_mut(
-                    res.base as *mut SegmentDescriptor,
-                    (res.limit / 8).into(),
-                )
+                core::slice::from_raw_parts_mut(res.base as *mut SegmentDescriptor, limit)
             },
         }
+    }
+
+    /// Apply the changes
+    const KCODE: u16 = 0b0000_0000_0000_1000;
+    const KDATA: u16 = 0b0000_0000_0001_0000;
+    #[naked]
+    pub extern "sysv64" fn apply(from: SaveGlobalDescriptorTableResult) {
+        asm!(
+            "lgdt [rdi]",
+
+            "mov   AX, {1}",
+            "mov   DS, AX",
+            "mov   ES, AX",
+            "mov   FS, AX",
+            "mov   GS, AX",
+            "mov   SS, AX",
+
+            "pop rax",
+            "push word ptr {2}",
+            "push rax",
+            "retfq",
+            inout("rdi") _,
+            out("rax") _,
+            const KDATA,
+            const KCODE,
+            options(noreturn)
+        )
     }
 }
 

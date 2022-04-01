@@ -56,12 +56,12 @@ impl Address<Virtual> {
 
     /// Get an immutable pointer for the address
     fn get_address(&self) -> *const u8 {
-        (self.0 & Self::ADDRESS_MASK) as *const u8
+        self.0 as *const u8
     }
 
     /// Get a mutable pointer for the address
     fn get_address_mut(&mut self) -> *mut u8 {
-        (self.0 & Self::ADDRESS_MASK) as *mut u8
+        self.0 as *mut u8
     }
 
     /// Bits 39-47
@@ -106,11 +106,15 @@ impl Clone for Address<Physical> {
     }
 }
 
+impl Copy for Address<Physical> {}
+
 impl Clone for Address<Virtual> {
     fn clone(&self) -> Self {
         Self(self.0, self.1)
     }
 }
+
+impl Copy for Address<Virtual> {}
 
 impl core::fmt::Debug for Address<Virtual> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -193,11 +197,15 @@ impl Clone for AlignedAddress<Physical> {
     }
 }
 
+impl Copy for AlignedAddress<Physical> {}
+
 impl Clone for AlignedAddress<Virtual> {
     fn clone(&self) -> Self {
         Self(self.0, self.1)
     }
 }
+
+impl Copy for AlignedAddress<Virtual> {}
 
 impl<T> AlignedAddress<T> {
     /// The address mask
@@ -221,11 +229,6 @@ impl<T> AlignedAddress<T> {
 }
 
 impl AlignedAddress<Virtual> {
-    /// Page align an address by truncating the spare bytes
-    pub fn align_lossy(&self) -> AlignedAddress<Virtual> {
-        AlignedAddress(align_down(self.0, 4096), PhantomData)
-    }
-
     /// Get the inner value
     pub fn get_inner(&self) -> usize {
         self.0
@@ -233,12 +236,12 @@ impl AlignedAddress<Virtual> {
 
     /// Get an immutable pointer for the address
     fn get_address(&self) -> *const u8 {
-        (self.0 & Self::ADDRESS_MASK) as *const u8
+        self.0 as *const u8
     }
 
     /// Get a mutable pointer for the address
     fn get_address_mut(&mut self) -> *mut u8 {
-        (self.0 & Self::ADDRESS_MASK) as *mut u8
+        self.0 as *mut u8
     }
 
     /// Bits 39-47

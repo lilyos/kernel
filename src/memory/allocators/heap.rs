@@ -189,18 +189,19 @@ impl HeapAllocator {
 
             let mut tbreak = true;
             for index in 0..items.present() {
-                let a = match items[index].as_ref() {
-                    Some(v) => v,
+                let b = match items.storage.get(index + 1) {
+                    Some(Some(v)) => v.clone(),
                     _ => continue,
                 };
-                let b = match items[index + 1].as_ref() {
-                    Some(v) => v,
+
+                let a = match items.storage.get_mut(index) {
+                    Some(Some(v)) => v,
                     _ => continue,
                 };
+
                 if unsafe { a.start.add(a.size) } == b.start {
                     let n_size = b.size;
-                    let mut item = items[index].as_mut().unwrap();
-                    item.size += n_size;
+                    a.size += n_size;
                     let _ = items.pop(index + 1);
 
                     tbreak = false;
