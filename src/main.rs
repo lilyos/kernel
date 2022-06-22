@@ -12,7 +12,9 @@
     generic_associated_types,
     associated_type_defaults,
     prelude_import,
-    ptr_metadata
+    ptr_metadata,
+    abi_x86_interrupt,
+    stmt_expr_attributes
 )]
 #![feature(default_alloc_error_handler)]
 #![warn(missing_docs)]
@@ -25,11 +27,8 @@ pub mod collections;
 /// Structures relating to memory management
 pub mod memory;
 
-/// Peripheral code
-pub mod peripherals;
-
-/// Structures for task switching, the GDT, and so forth
-pub mod structures;
+/// Architecture-specific structures
+pub mod arch;
 
 /// Structures for atomic operations
 pub mod sync;
@@ -37,22 +36,34 @@ pub mod sync;
 /// Traits for various things
 pub mod traits;
 
-use memory::{
-    allocators::{HeapAllocator, PageAllocator, PhysicalAllocator},
-    paging::{MemoryManager, MemoryManagerImpl},
+/// Interrupt handling
+pub mod interrupts;
+
+/// The logger
+pub mod logger;
+
+/// Macros
+mod macros;
+
+use crate::{
+    arch::{
+        peripherals::cpu::RSP,
+        structures::{install_interrupt_handler, SystemSegmentDescriptor},
+        MEMORY_MANAGER, PHYSICAL_ALLOCATOR,
+    },
+    interrupts::InterruptType,
+    traits::{PhysicalMemoryAllocator, VirtualMemoryManager},
 };
 
-use stivale2::boot::{
-    header::{
-        Stivale2HeaderBootloaderToKernel, Stivale2HeaderFlagsBuilder,
-        Stivale2HeaderKernelToBootloader,
-    },
-    tags::{
-        headers::{AnyVideoHeader, UnmapNull, SMP},
-        structures::{KernelBaseAddressStructure, MemoryMapStructure},
-        BaseTag,
-    },
+use log::{debug, error, info, trace};
+use memory::allocators::HeapAllocator;
+
+use limine_protocol::{
+    requests::{KernelAddressRequest, MemoryMapRequest, SMPRequest, StackSizeRequest},
+    LimineRequest,
 };
+
+use crate::arch::structures::{GlobalDescriptorTable, SizedDescriptorTable, TaskStateSegment};
 
 mod prelude {
     pub mod rust_2021 {
@@ -63,7 +74,7 @@ mod prelude {
                 ($($arg:tt)*) => (
                     {
                         use core::fmt::Write;
-                        let mut uart = crate::peripherals::UART.lock();
+                        let mut uart = $crate::arch::peripherals::UART.lock();
                         uart.write_fmt(format_args!($($arg)*)).unwrap();
                     }
                 );
@@ -72,7 +83,7 @@ mod prelude {
             #[macro_export]
             /// The println macro, literally just the print macro + a line return
             macro_rules! println {
-                () => (crate::print!("\n"));
+                () => ($crate::print!("\n"));
                 ($($arg:tt)*) => (print!("{}\n", format_args!($($arg)*)));
             }
         }
@@ -80,124 +91,116 @@ mod prelude {
         pub use core::arch::asm;
         pub use core::prelude::rust_2021::*;
         pub use core::prelude::v1::*;
+
+        extern crate alloc;
+        pub use alloc::{
+            borrow::*, boxed::Box, collections::*, slice::*, str::*, string::*, sync::*, task::*,
+            vec::*,
+        };
     }
 }
 
 #[prelude_import]
 pub use prelude::rust_2021::*;
 
-static STACK: [u8; 8192] = [0; 8192];
+#[used]
+static MEMORY_MAP: LimineRequest<MemoryMapRequest> = MemoryMapRequest {
+    id: MemoryMapRequest::ID,
+    revision: 0,
+    response: None,
+}
+.into_request();
 
 #[used]
-#[no_mangle]
-#[link_section = ".stivale2hdr"]
-static HEADER: Stivale2HeaderKernelToBootloader = Stivale2HeaderKernelToBootloader {
-    entry_point: 0,
-    stack: &STACK[8191],
-    flags: Stivale2HeaderFlagsBuilder::new()
-        .protected_memory_regions(true)
-        .upgrade_higher_half(true)
-        .virtual_kernel_mappings(true)
-        .finish(),
-    tags: &ANY_VIDEO as *const AnyVideoHeader as *const (),
-};
+static KERNEL_ADDRESS: LimineRequest<KernelAddressRequest> = KernelAddressRequest {
+    id: KernelAddressRequest::ID,
+    revision: 0,
+    response: None,
+}
+.into_request();
 
-static ANY_VIDEO: AnyVideoHeader = AnyVideoHeader {
-    identifier: AnyVideoHeader::IDENTIFIER,
-    next: &UNMAP_NULL as *const UnmapNull as *const (),
-    preference: 0,
-};
+#[used]
+static STACK_REQUEST: LimineRequest<StackSizeRequest> = StackSizeRequest {
+    stack_size: 1024 * 64,
+    id: StackSizeRequest::ID,
+    revision: 0,
+    response: None,
+}
+.into_request();
 
-static UNMAP_NULL: UnmapNull = UnmapNull {
-    identifier: UnmapNull::IDENTIFIER,
-    next: &SMP as *const SMP as *const (),
-};
-
-static SMP: SMP = SMP {
-    identifier: SMP::IDENTIFIER,
-    next: core::ptr::null(),
+#[used]
+static SMP_REQUEST: LimineRequest<SMPRequest> = SMPRequest {
     flags: 1,
-};
+    id: SMPRequest::ID,
+    revision: 0,
+    response: None,
+}
+.into_request();
 
 /// The Heap Allocator
 #[global_allocator]
 static ALLOCATOR: HeapAllocator = HeapAllocator::new();
 
-/// The Physical Memory Allocator
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-static PHYSICAL_ALLOCATOR: PhysicalAllocator<PageAllocator> =
-    PhysicalAllocator::new(PageAllocator::new());
-
-/// The Virtual Memory manager
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-static MEMORY_MANAGER: MemoryManager<MemoryManagerImpl> =
-    MemoryManager::new(MemoryManagerImpl::new());
-
-/// The kernel's GDT
-static mut GDT: [SegmentDescriptor; 9] = [SegmentDescriptor::new_unused(); 9];
-
-use crate::structures::{
-    GlobalDescriptorTable, SaveGlobalDescriptorTableResult, SegmentDescriptor, TaskStateSegment,
-};
-
-use core::arch::asm;
-
 extern crate alloc;
 
-/// The kernel entrypoint, gets the memory descriptors then passes them to kernel main
+/// The kernel entrypoint
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let mut ptr: *const Stivale2HeaderBootloaderToKernel;
-    unsafe {
-        asm!("mov {}, rdi", out(reg) ptr);
-    }
-    let hdr = unsafe { &*ptr };
-    kentry(hdr)
+    kentry()
 }
 
 /// The kernel main loop
 #[no_mangle]
-fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
-    println!("`Println!` functioning!");
-    println!("Bootloader header: {:?}", HEADER);
+fn kentry() -> ! {
+    crate::logger::LOGGER.init();
+    info!("Logging enabled");
+    trace!("{:?}", *MEMORY_MAP);
 
-    let mut mmap: Option<&MemoryMapStructure> = None;
-    let mut addrs: Option<&KernelBaseAddressStructure> = None;
+    let mmap_res = unsafe {
+        MEMORY_MAP
+            .response
+            .expect("The memory map wasn't present")
+            .as_ref()
+    };
 
-    let mut ptr = header.tags;
+    let mmap = unsafe {
+        mmap_res
+            .get_memory_map()
+            .expect("The memory map wasn't present")
+    };
 
-    while !ptr.is_null() {
-        if let Ok(val) = MemoryMapStructure::try_from_base(ptr) {
-            mmap = Some(unsafe { &*val });
-        }
+    debug!("Memory Map: {:#?}", mmap);
 
-        if let Ok(val) = KernelBaseAddressStructure::try_from(ptr) {
-            addrs = Some(val);
-        }
+    let addrs = unsafe {
+        KERNEL_ADDRESS
+            .response
+            .expect("The kernel address struct wasn't present")
+            .as_ref()
+    };
 
-        ptr = unsafe { (*ptr).next as *const BaseTag };
-    }
+    debug!("Kernel Addresses: {:#?}", addrs);
 
-    println!("This should be some: {}", mmap.is_some());
+    unsafe { PHYSICAL_ALLOCATOR.init(mmap).unwrap() };
 
-    unsafe { PHYSICAL_ALLOCATOR.init(mmap.unwrap()).unwrap() };
+    info!("Initialized page allocator");
 
-    // PHYSICAL_ALLOCATOR.get_buddies();
+    const INITIAL_HEAP_SIZE: usize = 8;
+    let heap_alloc = PHYSICAL_ALLOCATOR.alloc(INITIAL_HEAP_SIZE).unwrap();
+    info!(
+        "Allocated Heap space starting at {:#X}",
+        heap_alloc.address_mut() as usize
+    );
 
-    println!("Initialized page allocator");
-
-    let heap_size = 8;
-    let (heap, _heap_block) = PHYSICAL_ALLOCATOR.alloc(heap_size).unwrap();
-    println!("Heap Alloc: 0x{:x}", heap as usize);
-
-    println!("Allocated pages");
-
-    unsafe { ALLOCATOR.init(heap, heap_size * 1024).unwrap() };
-    println!("Initialized Heap Allocator");
+    unsafe {
+        ALLOCATOR
+            .init(heap_alloc.address_mut(), INITIAL_HEAP_SIZE * 1024)
+            .unwrap()
+    };
+    info!("Initialized Heap Allocator");
 
     {
-        let mut uwu = alloc::vec::Vec::new();
-        let mut owo = alloc::vec::Vec::new();
+        let mut uwu = Vec::new();
+        let mut owo = Vec::new();
         uwu.push(1);
         owo.push(1);
         for i in 1..101 {
@@ -206,155 +209,115 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
         }
     }
 
-    println!("Well, let's try to make some mappings :v");
-
     assert!(MEMORY_MANAGER
         .virtual_to_physical(core::ptr::null::<u8>().try_into().unwrap())
         .is_none());
 
     let x = 9u64;
     let x_ptr = &x as *const u64;
-    let x_ptr_phys =
-        (addrs.unwrap().phys_base + (x_ptr as u64 - addrs.unwrap().virt_base)) as *const u64;
-    println!("X-PTR: {:?}, X-PTR-PHYS: {:?}", x_ptr, x_ptr_phys);
-    assert!(unsafe { *x_ptr } == x);
+    debug!("X-PTR: {:?}", x_ptr);
 
-    let x_got_ptr =
-        MEMORY_MANAGER.virtual_to_physical((x_ptr_phys as *const u8).try_into().unwrap());
-    println!("Got: {:?}", x_got_ptr);
+    let x_got_ptr = MEMORY_MANAGER.virtual_to_physical((x_ptr as *const u8).try_into().unwrap());
+    debug!("Got: {:?}", x_got_ptr);
 
-    assert!(x_ptr_phys as usize == x_got_ptr.unwrap().get_address());
+    unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
 
-    println!("that was equal, so my virt to phys works ig :v");
-
-    unsafe { MEMORY_MANAGER.init(mmap.unwrap()).unwrap() }
-
-    let mutex = sync::Mutex::new(9);
     {
-        println!("Locking mutex!");
-        let lock = mutex.lock();
-        println!("Locked mutex! Got value {}", *lock);
-        assert!(*lock == 9)
-    }
-    println!("Dropped mutex!");
-
-    let esp: u64;
-    unsafe {
-        asm!("mov {}, rsp", out(reg) esp);
+        let mutex = sync::Mutex::new(9);
+        {
+            debug!("Locking mutex!");
+            let lock = mutex.lock();
+            debug!("Locked mutex! Got value {}", *lock);
+            assert!(*lock == 9)
+        }
+        debug!("Dropped mutex!");
     }
 
-    let _tss = TaskStateSegment::new_no_ports(
-        (esp as *mut u8).try_into().unwrap(),
+    // let rsp = RSP::get();
+    let rsp = RSP(core::ptr::null_mut());
+
+    trace!("Got rsp");
+
+    let tss = TaskStateSegment::new_no_ports(
+        (rsp.0).try_into().unwrap(),
         core::ptr::null_mut::<u8>().try_into().unwrap(),
         core::ptr::null_mut::<u8>().try_into().unwrap(),
     );
 
+    let mut sys_descriptor = SystemSegmentDescriptor::new_unused();
+    sys_descriptor.set_flags(0x40);
+    sys_descriptor.set_base(&tss as *const _ as u64);
+    sys_descriptor.set_limit(core::mem::size_of_val(&tss) as u32);
+    sys_descriptor.access_byte = arch::structures::AccessByte { raw: 0x40 };
+
+    trace!("Made tss and system descriptor");
+
     unsafe {
-        let mut kcode = SegmentDescriptor::new_unused();
-        kcode.set_limit(0xFFFFF);
-        {
-            kcode.access_byte.set_present(true);
-            kcode.access_byte.set_is_code_or_data(true);
-        }
-        let kcab = &mut kcode.access_byte.code;
-        kcab.set_executable();
-        kcab.set_read_write();
-
-        GDT[1] = kcode;
-
-        let mut kdata = SegmentDescriptor::new_unused();
-        kdata.set_limit(0xFFFFF);
-        {
-            kdata.access_byte.set_present(true);
-            kdata.access_byte.set_is_code_or_data(true);
-        }
-        let kdab = &mut kdata.access_byte.code;
-        kdab.set_read_write();
-        kdab.set_present();
-
-        GDT[2] = kdata;
-
-        let mut ucode32 = SegmentDescriptor::new_unused();
-        ucode32.set_limit(0xFFFFF);
-        {
-            ucode32.access_byte.set_present(true);
-            ucode32.access_byte.set_is_code_or_data(true);
-        }
-        let ucab32 = &mut ucode32.access_byte.code;
-        ucab32.set_read_write();
-        ucab32.set_present();
-        ucab32.set_descriptor_level(3);
-
-        GDT[3] = ucode32;
-
-        let mut udata32 = SegmentDescriptor::new_unused();
-        udata32.set_limit(0xFFFFF);
-        {
-            udata32.access_byte.set_present(true);
-            udata32.access_byte.set_is_code_or_data(true);
-        }
-        let udab32 = &mut udata32.access_byte.code;
-        udab32.set_read_write();
-        udab32.set_present();
-        udab32.set_descriptor_level(3);
-
-        GDT[4] = udata32;
-
-        let mut ucode64 = SegmentDescriptor::new_unused();
-        ucode64.set_flags(0b0010);
-        ucode64.set_limit(0xFFFFF);
-        {
-            ucode64.access_byte.set_present(true);
-            ucode64.access_byte.set_is_code_or_data(true);
-        }
-        let ucab64 = &mut ucode64.access_byte.code;
-        ucab64.set_read_write();
-        ucab64.set_present();
-        ucab64.set_descriptor_level(3);
-
-        GDT[5] = ucode64;
-
-        let mut udata64 = SegmentDescriptor::new_unused();
-        udata64.set_limit(0xFFFFF);
-        {
-            udata32.access_byte.set_present(true);
-            udata32.access_byte.set_is_code_or_data(true);
-        }
-        let udab64 = &mut udata64.access_byte.code;
-        udab64.set_read_write();
-        udab64.set_present();
-        udab64.set_descriptor_level(3);
-
-        GDT[6] = udata64;
+        (arch::structures::GDT.as_ptr().offset(7) as *mut SystemSegmentDescriptor)
+            .write(sys_descriptor);
     }
 
-    println!("Loading GDT");
+    info!("Loading GDT");
 
-    let gdt_ldr = SaveGlobalDescriptorTableResult {
+    let gdt_ldr = SizedDescriptorTable {
         limit: { 7 * 8 } - 1,
-        base: unsafe { GDT.as_ptr() as usize as u64 },
+        base: unsafe { arch::structures::GDT.as_ptr() as usize as u64 },
     };
 
-    println!(
+    let gdt_ldr_ptr = &gdt_ldr as *const _ as usize;
+
+    debug!(
         "Is address canonical: {}",
-        memory::allocators::is_address_canonical(0x0000ffffffffb541, 64)
+        memory::utilities::is_address_canonical(gdt_ldr.base as usize, 48)
     );
 
-    println!("Made object: {:#?}", gdt_ldr);
+    debug!("Made object: {:#?}", gdt_ldr);
 
-    GlobalDescriptorTable::apply(gdt_ldr);
+    GlobalDescriptorTable::apply(gdt_ldr_ptr);
 
-    let gdt_res = SaveGlobalDescriptorTableResult::get();
-    println!("{:#?}", gdt_res);
+    let gdt_res = SizedDescriptorTable::get_gdt();
+    debug!("{:#?}", gdt_res);
 
-    let gdt = GlobalDescriptorTable::from_existing(gdt_res);
+    // debug!("{:#?}", gdt);
 
-    println!("GDT entries len: {}", gdt.entries.len());
-    println!("{:#?}", gdt);
+    unsafe { install_interrupt_handler() };
 
-    println!("Beginning echo...");
+    fn handler(it: InterruptType) {
+        error!("We got an interrupt! {it:?}");
+        loop {
+            unsafe {
+                asm!("pause");
+            }
+        }
+    }
+
+    unsafe { arch::structures::INTERRUPT_HANDLER = Some(handler) }
+
+    debug!("We installed the handler?");
+
+    unsafe fn unsafe_divide(a: u64, b: u64) -> (u64, u64) {
+        let mut out = a;
+        let mut rem = 0;
+        asm!(
+            "cdqe",
+            "div {}",
+            in(reg) b,
+            inout("rax") out,
+            inout("rdx") rem,
+        );
+        (out, rem)
+    }
+
+    trace!("`unsafe_divide` address: {:#X}", unsafe_divide as usize);
+
+    let a = unsafe { unsafe_divide(4, 2) }.0;
+    assert_eq!(a, 2);
+    let b = unsafe { unsafe_divide(4, 0) }.0;
+    assert_eq!(b, 0);
+
+    info!("Beginning echo...");
     loop {
-        let mut uart = crate::peripherals::UART.lock();
+        let mut uart = crate::arch::peripherals::UART.lock();
         let byte = uart.read_byte();
         uart.write_byte(byte);
     }
@@ -362,20 +325,14 @@ fn kentry(header: &Stivale2HeaderBootloaderToKernel) -> ! {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    println!("KERNEL PANIC");
+    error!("KERNEL PANIC");
     if let Some(reason) = info.message() {
-        println!("REASON: {}", reason);
+        error!("REASON: {}", reason);
     }
     if let Some(loc) = info.location() {
-        println!("Line: {}\nFile: {}", loc.line(), loc.file());
+        error!("IN: {}:{}", loc.file(), loc.line());
     }
     loop {
-        let mut i: u64 = 0;
-        (0..u64::MAX).for_each(|_| {
-            i += 1;
-        });
-        unsafe {
-            asm!("int 0x00");
-        }
+        unsafe { asm!("pause") }
     }
 }

@@ -61,7 +61,7 @@ impl<T> RwLock<T> {
     }
 
     /// Get write lock to the data, won't work unless there's no read locks
-    pub fn lock(&self) -> WriteLockGuard<T> {
+    pub fn write(&self) -> WriteLockGuard<T> {
         loop {
             if let Some(write_guard) = self.try_lock() {
                 return write_guard;

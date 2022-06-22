@@ -1,17 +1,17 @@
-/*
-#[cfg(feature = "atomic")]
-pub mod atomic;
-#[cfg(feature = "atomic")]
-pub use atomic::*;
-#[cfg(feature = "sync")]
-pub mod notatomic;
-#[cfg(feature = "sync")]
-pub use notatomic::*;
-*/
+mod singleton;
+pub use singleton::Singleton;
 
-#[allow(dead_code)]
-mod atomic;
-pub use atomic::*;
+mod mutex;
+pub use mutex::{Mutex, MutexGuard};
+
+mod rwlock;
+pub use rwlock::RwLock;
+
+mod semaphore;
+pub use semaphore::Semaphore;
+
+mod spinlock;
+pub use spinlock::Spinlock;
 
 /// Lie about something being sync
 #[repr(transparent)]

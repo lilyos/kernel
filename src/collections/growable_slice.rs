@@ -1,23 +1,41 @@
 use core::cmp::Ordering;
 
-use crate::memory::allocators::AllocatorError;
+use crate::{
+    arch::PHYSICAL_ALLOCATOR,
+    memory::{allocators::AllocGuard, errors::AllocatorError},
+    traits::PhysicalMemoryAllocator,
+};
 
 /// A Vector-like container that makes use of the phsyical allocator
 #[derive(Debug)]
-pub struct GrowableSlice<T: 'static> {
+pub struct GrowableSlice<'a, T> {
     /// The inner storage of the slice
-    pub storage: &'static mut [Option<T>],
-    block_start: usize,
-    blocks_allocated: usize,
+    pub storage: &'a mut [Option<T>],
+    guard: Option<AllocGuard<'a>>,
 }
 
-impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> {
+impl<'a, T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<'a, T> {
     /// Create a new growable slice
     pub const fn new() -> Self {
         Self {
             storage: &mut [],
-            block_start: 0,
-            blocks_allocated: 0,
+            guard: None,
+        }
+    }
+
+    /// Get the guard
+    const fn get_guard(&self) -> Result<&'a AllocGuard, AllocatorError> {
+        match &self.guard {
+            Some(v) => Ok(v),
+            None => Err(AllocatorError::Uninitialized),
+        }
+    }
+
+    /// Take the guard
+    fn take_guard(&mut self) -> Result<AllocGuard, AllocatorError> {
+        match self.guard.take() {
+            Some(v) => Ok(v),
+            None => Err(AllocatorError::Uninitialized),
         }
     }
 
@@ -39,14 +57,13 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
     /// # Safety
     /// All writes must succeed, and the allocated area must be empty, unless you want data gone
     pub unsafe fn init(&mut self) -> Result<(), AllocatorError> {
-        let (alloc, block_start) = crate::PHYSICAL_ALLOCATOR.alloc(1)?;
+        let guard = PHYSICAL_ALLOCATOR.alloc(1)?;
         self.storage = core::slice::from_raw_parts_mut(
-            alloc as *mut Option<T>,
+            guard.address_mut() as *mut Option<T>,
             1024 / core::mem::size_of::<T>(),
         );
         self.storage.fill(None);
-        self.block_start = block_start;
-        self.blocks_allocated = 1;
+        self.guard = Some(guard);
         Ok(())
     }
 
@@ -141,21 +158,28 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
     /// assert!(data.push(2) == Ok(()));
     /// ```
     pub fn grow_storage(&mut self) -> Result<usize, AllocatorError> {
-        let (alloc, alloc_blocks) = crate::PHYSICAL_ALLOCATOR.alloc(self.blocks_allocated * 2)?;
+        let kilos_allocated = self.get_guard()?.kilos_allocated();
+        let guard = PHYSICAL_ALLOCATOR.alloc(kilos_allocated * 2)?;
 
         let new = unsafe {
-            core::slice::from_raw_parts_mut(alloc as *mut Option<T>, alloc_blocks * 1024)
+            core::slice::from_raw_parts_mut(
+                guard.address_mut() as *mut Option<T>,
+                guard.kilos_allocated() * 1024,
+            )
         };
         new.fill(None);
 
         new[0..self.storage.len()].clone_from_slice(self.storage);
 
-        crate::PHYSICAL_ALLOCATOR.dealloc(self.block_start, self.blocks_allocated)?;
+        {
+            let guard_old = self.take_guard()?;
+            drop(guard_old);
+        }
 
         self.storage = new;
-        self.blocks_allocated = alloc_blocks;
+        self.guard = Some(guard);
 
-        Ok((self.blocks_allocated / 2) * 1024)
+        Ok(self.get_guard()?.kilos_allocated() * 1024)
     }
 
     /// Moves items towards the beginning of the region.
@@ -174,20 +198,22 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
     ///
     /// assert!(data.shrink_storage().is_err()));
     pub fn shrink_storage(&mut self) -> Result<usize, AllocatorError> {
-        if self.storage.len() != self.present() && self.blocks_allocated > 1 {
+        let kilos_allocated = self.get_guard()?.kilos_allocated();
+
+        if self.storage.len() != self.present() && kilos_allocated > 1 {
             self.sort(Self::none_to_end);
             let slice_bytes = self.present() * core::mem::size_of::<T>();
-            let bytes_alloc = self.blocks_allocated * 1024;
+            let bytes_alloc = kilos_allocated * 1024;
             let diff = bytes_alloc - slice_bytes;
             if diff % 1024 == 0 {
                 let spare = diff / 1024;
 
-                let new_size = self.blocks_allocated - spare;
+                let new_size = kilos_allocated - spare;
 
-                let (alloc, block_start) = crate::PHYSICAL_ALLOCATOR.alloc(new_size)?;
+                let guard = PHYSICAL_ALLOCATOR.alloc(new_size)?;
                 let storage = unsafe {
                     core::slice::from_raw_parts_mut(
-                        alloc as *mut Option<T>,
+                        guard.address_mut() as *mut Option<T>,
                         (new_size * 1024) / core::mem::size_of::<T>(),
                     )
                 };
@@ -195,12 +221,14 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
 
                 storage.clone_from_slice(&self.storage[0..self.present()]);
 
-                crate::PHYSICAL_ALLOCATOR.dealloc(self.block_start, self.blocks_allocated)?;
+                {
+                    let guard_old = self.take_guard()?;
+                    drop(guard_old);
+                }
 
                 self.storage = storage;
 
-                self.block_start = block_start;
-                self.blocks_allocated = new_size;
+                self.guard = Some(guard);
                 Ok(diff)
             } else {
                 Err(AllocatorError::CompactionTooLow)
@@ -228,5 +256,3 @@ impl<T: PartialEq + Clone + core::fmt::Debug + core::cmp::Ord> GrowableSlice<T> 
         }
     }
 }
-
-unsafe impl<T: Copy> Sync for GrowableSlice<T> {}

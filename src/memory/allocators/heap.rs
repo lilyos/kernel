@@ -1,9 +1,13 @@
-use super::{align, AllocatorError};
+use crate::{
+    memory::{errors::AllocatorError, utilities::align},
+    sync::RwLock,
+};
 
-use crate::{collections::GrowableSlice, sync::Mutex};
+use crate::collections::GrowableSlice;
 
 extern crate alloc;
 use alloc::alloc::{GlobalAlloc, Layout};
+use log::trace;
 
 use core::{cmp::Ordering, ptr};
 
@@ -43,13 +47,13 @@ impl core::cmp::Ord for FreeRegion {
 }
 
 /// The Lotus OS Heap Allocator
-pub struct HeapAllocator {
-    storage: Mutex<GrowableSlice<FreeRegion>>,
+pub struct HeapAllocator<'a> {
+    storage: RwLock<GrowableSlice<'a, FreeRegion>>,
 }
 
 static DIV: &str = "================================================================";
 
-impl HeapAllocator {
+impl<'a> HeapAllocator<'a> {
     /// Create a new heap allocator
     ///
     /// # Example
@@ -60,7 +64,7 @@ impl HeapAllocator {
     /// ```
     pub const fn new() -> Self {
         HeapAllocator {
-            storage: Mutex::new(GrowableSlice::new()),
+            storage: RwLock::new(GrowableSlice::new()),
         }
     }
 
@@ -94,7 +98,7 @@ impl HeapAllocator {
     /// The provided region must not overlap with any important data
     pub unsafe fn init(&self, start: *mut u8, size: usize) -> Result<(), AllocatorError> {
         {
-            let mut storage = self.storage.lock();
+            let mut storage = self.storage.write();
             storage.init()?;
         }
         self.add_free_region(start, size)?;
@@ -111,7 +115,9 @@ impl HeapAllocator {
     /// The provided region must not overlap with any important data
     pub unsafe fn add_free_region(&self, addr: *mut u8, size: usize) -> Result<(), AllocatorError> {
         self.join_nearby();
-        let items = &mut *self.storage.lock();
+        trace!("Sorted free regions");
+        let items = &mut *self.storage.write();
+        trace!("Pushing new free region");
         items.push(FreeRegion::new(addr, size))
     }
 
@@ -130,8 +136,7 @@ impl HeapAllocator {
         size: usize,
         alignment: usize,
     ) -> Option<(*mut FreeRegion, usize, usize)> {
-        let items = &mut *self.storage.lock();
-        items.sort(Self::sort_ascending_base);
+        let items = self.storage.read();
         for (index, item) in items
             .storage
             .iter()
@@ -141,7 +146,7 @@ impl HeapAllocator {
         {
             if let Ok(alloc_start) = self.check_region_allocation(item, size, alignment) {
                 return Some((
-                    &*item as *const FreeRegion as *mut FreeRegion,
+                    item as *const FreeRegion as *mut FreeRegion,
                     alloc_start,
                     index,
                 ));
@@ -183,7 +188,7 @@ impl HeapAllocator {
     /// Join nearby regions by adding an item's start and checking if it equals the
     /// next item's start.
     fn join_nearby(&self) {
-        let mut items = self.storage.lock();
+        let mut items = self.storage.write();
         loop {
             items.sort(Self::sort_ascending_base);
 
@@ -215,11 +220,11 @@ impl HeapAllocator {
     }
 }
 
-impl core::fmt::Display for HeapAllocator {
+impl<'a> core::fmt::Display for HeapAllocator<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         writeln!(f, "{}", DIV)?;
 
-        let items = self.storage.lock();
+        let items = self.storage.read();
         for item in items
             .storage
             .iter()
@@ -233,7 +238,7 @@ impl core::fmt::Display for HeapAllocator {
     }
 }
 
-unsafe impl GlobalAlloc for HeapAllocator {
+unsafe impl<'a> GlobalAlloc for HeapAllocator<'a> {
     /// I really don't want to explain this, buttttttttttttttttttttt
     /// It
     /// * Aligns the layout
@@ -260,7 +265,7 @@ unsafe impl GlobalAlloc for HeapAllocator {
             }
 
             {
-                let mut storage = self.storage.lock();
+                let mut storage = self.storage.write();
                 let _ = storage.pop(region_idx);
                 storage.sort(Self::sort_ascending_base);
             }

@@ -1,8 +1,10 @@
 [package]
+edition = "2021"
 name = "kernel"
 version = "0.1.0"
-edition = "2021"
 
 [dependencies]
-kernel-macros = { path = "../kernel-macros" }
-stivale2 = { path = "../stivale2" }
+# kernel-macros = {path = "../kernel-macros"}
+# stivale2 = { path = "../stivale2" }
+limine-protocol = {path = "../limine-protocol"}
+log = "0.4.17"
