@@ -1,6 +1,3 @@
-mod init;
-pub use init::Init;
-
 mod physical_memory_allocator;
 pub use physical_memory_allocator::PhysicalMemoryAllocator;
 

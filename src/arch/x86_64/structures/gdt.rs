@@ -4,264 +4,317 @@ use core::{
     ops::{Index, IndexMut},
 };
 
+use crate::macros::bitflags::bitflags;
+
+/*
+/// Test if we're in 64_bit mode
+pub fn is_64_bit_mode() -> bool {
+    let out: u8;
+    unsafe {
+        asm!(
+            "jmp 4f",
+            "2:",
+            "mov {0}, 0x0",
+            "3:",
+            "mov {0}, 0x1",
+            "4:",
+            "mov eax, 0x80000000",
+            "cpuid",
+            "cmp eax, 0x80000001",
+            "jb 2b",
+            "mov eax, 0x80000001",
+            "cpuid",
+            "test edx, 1 << 29",
+            "jz 2b",
+            "jmp 3b",
+            out(reg_byte) out,
+            out("eax") _,
+            out("edx") _,
+        )
+    }
+    out != 0
+}
+*/
+
+/// This is okay since Limine drops us into 64 bit mode
+pub fn is_64_bit_mode() -> bool {
+    true
+}
+
 /// The kernel's GDT
 #[used]
 pub static mut GDT: [u64; 9] = [
     0,
-    0b0000_0000_0010_0000_1001_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    0b0000_0000_0100_0000_1001_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    0b0000_0000_0100_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    0b0000_0000_0010_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    // 0b0000_0000_0010_0000_1001_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    // 0b0000_0000_0100_0000_1001_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    // 0b0000_0000_0100_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    // 0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    // 0b0000_0000_0010_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    // 0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    0x0000000000209A00,
+    0x0000000000009200,
+    0x000000000040FA00,
+    0x000000000040F200,
+    0x000000000020FA00,
+    0x000000000000F200,
     0,
     0,
 ];
 
-/// Entry types for the GDT in long mode
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
-pub enum EntryType {
-    /// If the entry is a LDT
+/// Segment types for 32 bit mode
+pub enum SegmentType32Bit {
+    /// 16 bit Tss (Available)
+    Tss16BitAvailable = 0x1,
+    /// Local Descriptor Table
     Ldt = 0x2,
-    /// If the entry is a TSS
-    Tss = 0x9,
+    /// 16 bit Tss (Busy)
+    Tss16BitBusy = 0x3,
+    /// 32 bit Tss (Available)
+    Tss32BitAvailable = 0x9,
+    /// 32 bit Tss (Busy)
+    Tss32BitBusy = 0xB,
 }
 
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-/// The access byte for a Task State Segment or a Local Descriptor Table
-pub struct TSSAccessByte(pub u8);
-
-impl TSSAccessByte {
-    /// Gets the Present bit (8).
-    /// Marks a segment as being a valid entry in the GDT.
-    pub fn get_present(&self) -> bool {
-        self.0 & (1 << 7) != 0
-    }
-
-    /// Sets the Present bit (8).
-    /// Marks a segment as being a valid entry in the GDT.
-    pub fn set_present(&mut self) {
-        self.0 |= 1 << 7
-    }
-
-    /// Clears the Present bit (8).
-    /// Marks a segment as being a valid entry in the GDT.
-    pub fn clear_present(&mut self) {
-        self.0 &= !(1 << 7);
-    }
-
-    /// Gets the Descriptor Level (bits 6-7).
-    /// Describes the privilege level of the segment.
-    pub fn get_descriptor_level(&self) -> u8 {
-        (self.0 >> 5) & 0b11
-    }
-
-    /// Sets the Descriptor Level (bits 6-7).
-    /// Describes the privilege level of the segment.
-    pub fn set_descriptor_level(&mut self, level: u8) {
-        self.0 &= 0b1001_1111;
-        self.0 &= (level << 5) & 0b0110_0000;
-    }
-
-    /// Get the type of the segment
-    pub fn get_type(&self) -> u8 {
-        self.0 & 0xF
-    }
-
-    /// Set the type of the segment
-    pub fn set_type(&mut self, kind: EntryType) {
-        self.0 &= !0xF;
-        self.0 &= kind as u8;
-    }
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+/// Segment types for 64 bit mode
+pub enum SegmentType64Bit {
+    /// Local Descriptor Table
+    Ldt = 0x2,
+    /// 64 bit Tss (Available)
+    Tss64BitAvailable = 0x9,
+    /// 64 bit Tss (Busy)
+    Tss64BitBusy = 0xB,
 }
 
-impl core::fmt::Debug for TSSAccessByte {
+/// Union of segment types
+pub union SegmentType {
+    /// Protected Mode Segment Type
+    pub protected: SegmentType32Bit,
+    /// Long Mode Segment Type
+    pub long: SegmentType64Bit,
+    untyped: u8,
+}
+
+impl Debug for SegmentType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TSSAccessByte")
-            .field("type", &format_args!("{:#X}", self.get_type()))
-            .field("descriptor_level", &self.get_descriptor_level())
-            .field("present", &self.get_present())
-            .finish()
-    }
-}
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-/// The access byte for a code or data segment
-pub struct CodeDataAccessByte(pub u8);
-
-impl CodeDataAccessByte {
-    /// Gets the Present bit (8).
-    /// Marks a segment as being a valid entry in the GDT.
-    pub fn get_present(&self) -> bool {
-        self.0 & (1 << 7) != 0
-    }
-
-    /// Sets the Present bit (8).
-    /// Marks a segment as being a valid entry in the GDT.
-    pub fn set_present(&mut self) {
-        self.0 |= 1 << 7
-    }
-
-    /// Clears the Present bit (8).
-    /// Marks a segment as being a valid entry in the GDT.
-    pub fn clear_present(&mut self) {
-        self.0 &= !(1 << 7);
-    }
-
-    /// Gets the Descriptor Level (bits 6-7).
-    /// Describes the privilege level of the segment.
-    pub fn get_descriptor_level(&self) -> u8 {
-        (self.0 >> 5) & 0b11
-    }
-
-    /// Sets the Descriptor Level (bits 6-7).
-    /// Describes the privilege level of the segment.
-    pub fn set_descriptor_level(&mut self, level: u8) {
-        self.0 &= 0b1001_1111;
-        self.0 &= (level << 5) & 0b011;
-    }
-
-    /// Gets the Executable Bit (4).
-    /// Determines if the descriptor defines a data segment (0) or a code segment (1).
-    pub fn get_executable(&self) -> bool {
-        self.0 & (1 << 3) != 0
-    }
-
-    /// Sets the Executable Bit (4).
-    /// Determines if the descriptor defines a data segment (0) or a code segment (1).
-    pub fn set_executable(&mut self) {
-        self.0 |= 1 << 3;
-    }
-
-    /// Clears the Executable Bit (4).
-    /// Determines if the descriptor defines a data segment (0) or a code segment (1).
-    pub fn clear_executable(&mut self) {
-        self.0 &= !(1 << 3)
-    }
-
-    /// Gets the Direction Bit/Conforming Bit (3).
-    /// For data selectors, it determines if the segment grows up (0) or down (1).
-    /// For code selectors, it determines if the code can only be executed from the current privilege level (0) or from an equal or lower privilege level (1).
-    pub fn get_direction(&self) -> bool {
-        self.0 & (1 << 2) != 0
-    }
-
-    /// Sets the Direction Bit/Conforming Bit (3).
-    /// For data selectors, it determines if the segment grows up (0) or down (1).
-    /// For code selectors, it determines if the code can only be executed from the current privilege level (0) or from an equal or lower privilege level (1).
-    pub fn set_direction(&mut self) {
-        self.0 |= 1 << 2
-    }
-
-    /// Clears the Direction Bit/Conforming Bit (3).
-    /// For data selectors, it determines if the segment grows up (0) or down (1).
-    /// For code selectors, it determines if the code can only be executed from the current privilege level (0) or from an equal or lower privilege level (1).
-    pub fn clear_direction(&mut self) {
-        self.0 &= !(1 << 2)
-    }
-
-    /// Gets the Read-Write bit (2).
-    /// For code segments, it is the readable bit. If clear (0), reading is not allowed. Writing is never allowed for code segments.
-    /// For data segments, it is the writable bit. If clear(0), writing is not allowed. Reading is always allowed for data segments.
-    pub fn get_read_write(&self) -> bool {
-        self.0 & 1 << 1 != 0
-    }
-
-    /// Sets the Read-Write bit (2).
-    /// For code segments, it is the readable bit. If clear (0), reading is not allowed. Writing is never allowed for code segments.
-    /// For data segments, it is the writable bit. If clear(0), writing is not allowed. Reading is always allowed for data segments.
-    pub fn set_read_write(&mut self) {
-        self.0 |= 1 << 1
-    }
-
-    /// Clears the Read-Write bit (2).
-    /// For code segments, it is the readable bit. If clear (0), reading is not allowed. Writing is never allowed for code segments.
-    /// For data segments, it is the writable bit. If clear(0), writing is not allowed. Reading is always allowed for data segments.
-    pub fn clear_read_write(&mut self) {
-        self.0 &= !(1 << 1)
-    }
-
-    /// Gets the Accessed bit (1).
-    /// If clear (0), a segment has not been accessed. It will be set automatically by the cpu.
-    pub fn get_accessed(&self) -> bool {
-        self.0 & (1 << 0) != 0
-    }
-
-    /// Sets the Accessed bit (1).
-    /// If clear (0), a segment has not been accessed. It will be set automatically by the cpu.
-    pub fn set_accessed(&mut self) {
-        self.0 |= 1 << 0
-    }
-
-    /// Clears the Accessed bit (1).
-    /// If clear (0), a segment has not been accessed. It will be set automatically by the cpu.
-    pub fn clear_accessed(&mut self) {
-        self.0 &= !(1 << 0);
-    }
-}
-
-impl core::fmt::Debug for CodeDataAccessByte {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("CodeDataAccessByte")
-            .field("accessed", &self.get_accessed())
-            .field("read_write", &self.get_read_write())
-            .field("direction", &self.get_direction())
-            .field("executable", &self.get_executable())
-            .field("descriptor_level", &self.get_descriptor_level())
-            .field("present", &self.get_present())
-            .finish()
-    }
-}
-
-#[derive(Clone, Copy)]
-/// An undetermined type of access byte
-pub union AccessByte {
-    /// If it's for a TSS
-    pub tss: TSSAccessByte,
-    /// If it's for a code or data segment
-    pub code: CodeDataAccessByte,
-    /// The raw value
-    pub raw: u8,
-}
-
-impl AccessByte {
-    /// Get if the segment is present
-    pub fn get_present(&self) -> bool {
-        unsafe { self.raw & 0b100_0000 != 0 }
-    }
-
-    /// Set if the segment is present
-    pub fn set_present(&mut self, val: bool) {
-        unsafe { self.raw ^= val as u8 & (1 << 7) }
-    }
-
-    /// Get if the segment is for a task state segment
-    pub fn is_tss(&self) -> bool {
-        unsafe { (self.raw >> 5) & 0b1 == 0 }
-    }
-
-    /// Get if the segment is for a code or data segment
-    pub fn is_code_or_data(&self) -> bool {
-        unsafe { (self.raw >> 5) & 0b1 == 1 }
-    }
-
-    /// Set the segment type
-    pub fn set_is_code_or_data(&mut self, val: bool) {
         unsafe {
-            self.raw |= ((val as u8) & 0b1) << 5;
+            if is_64_bit_mode() {
+                <SegmentType64Bit as Debug>::fmt(&self.long, f)
+            } else {
+                <SegmentType32Bit as Debug>::fmt(&self.protected, f)
+            }
         }
     }
 }
 
-impl core::fmt::Debug for AccessByte {
+bitflags! {
+    pub struct CodeDataSegmentAccessByte: u8 {
+        /// Set if the segment is accessed
+        const ACCESSED = 1 << 0;
+
+        /// Read/Write options
+        ///
+        /// # For Code Segments
+        /// If clear, reading is not allowed.
+        /// If set (1), reading is allowed. Writing is always forbidden.
+        ///
+        /// # For Data Segments
+        /// If clear, writing is not allowed.
+        /// If set (1), writing is allowed. Reading is always allowed.
+        const READ_WRITE = 1 << 1;
+
+        /// Direction bit/Conforming bit
+        ///
+        /// # For Code Segments
+        /// If clear, this segment can only be executed from the specified privilege level.
+        /// If set, this segment can be executed from the specified privilege level or lower.
+        ///
+        /// # For Data Segments
+        /// If clear, this segment grows upwards.
+        /// If set, this segment grows downwards.
+        const DIRECTION_CONFORMING = 1 << 2;
+
+        /// Excutable Bit
+        ///
+        /// If clear, the descriptor defines a data segment.
+        /// If set, the descriptor defines a code segment.
+        const EXECUTABLE = 1 << 3;
+
+        /// The type of descriptor.
+        ///
+        /// If clear, this is a System Segment.
+        /// If set, this is a code or data segment.
+        const CODE_DATA_SEGMENT = 1 << 4;
+
+        /// If the segment is present
+        const PRESENT = 1 << 7;
+    }
+}
+
+impl CodeDataSegmentAccessByte {
+    /// Set descriptor privilege level
+    pub const fn descriptor_privilege_level(mut self, level: u8) -> Self {
+        self.bits |= (level & 0x2) << 6;
+        self
+    }
+
+    /// Get descriptor privilege level
+    pub const fn get_descriptor_privilege_level(&self) -> u8 {
+        (self.bits >> 6) & 0x2
+    }
+}
+
+impl Debug for CodeDataSegmentAccessByte {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if self.is_code_or_data() {
-            write!(f, "{:#?}", unsafe { self.code })
+        f.debug_struct("CodeDataSegmentAccessByte")
+            .field("Accessed", &self.contains(Self::ACCESSED))
+            .field("ReadWrite", &self.contains(Self::READ_WRITE))
+            .field(
+                "DirectionConforming",
+                &self.contains(Self::DIRECTION_CONFORMING),
+            )
+            .field("Executable", &self.contains(Self::EXECUTABLE))
+            .field("DescriptorType", &"CodeDataSegment")
+            .field(
+                "DescriptorPrivilegeLevel",
+                &self.get_descriptor_privilege_level(),
+            )
+            .field("Present", &self.contains(Self::PRESENT))
+            .finish()
+    }
+}
+
+bitflags! {
+    pub struct SystemSegmentAccessByte: u8 {
+        /// The type of descriptor.
+        ///
+        /// If clear, this is a System Segment.
+        /// If set, this is a code or data segment.
+        const CODE_DATA_SEGMENT = 1 << 4;
+
+        /// If the segment is present
+        const PRESENT = 1 << 7;
+    }
+}
+
+impl SystemSegmentAccessByte {
+    /// Set descriptor privilege level
+    pub const fn descriptor_privilege_level(mut self, level: u8) -> Self {
+        self.bits |= (level & 0x2) << 6;
+        self
+    }
+
+    /// Get descriptor privilege level
+    pub const fn get_descriptor_privilege_level(&self) -> u8 {
+        (self.bits >> 6) & 0x2
+    }
+
+    /// Set segment type
+    pub const fn segment_type(mut self, dtype: SegmentType) -> Self {
+        self.bits |= (unsafe { dtype.untyped } & 0b1_1111);
+        self
+    }
+
+    /// Get segment type
+    pub const fn get_segment_type(&self) -> SegmentType {
+        unsafe { core::mem::transmute(self.bits & 0b1_1111) }
+    }
+}
+
+impl Debug for SystemSegmentAccessByte {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SystemSegmentAccessByte")
+            .field("SegmentType", &self.get_segment_type())
+            .field("DescriptorType", &"SystemSegment")
+            .field(
+                "DescriptorPrivilegeLevel",
+                &self.get_descriptor_privilege_level(),
+            )
+            .field("Present", &self.contains(Self::PRESENT))
+            .finish()
+    }
+}
+
+bitflags! {
+    pub struct GenericAccessByte: u8 {
+        /// The type of descriptor.
+        ///
+        /// If clear, this is a System Segment.
+        /// If set, this is a code or data segment.
+        const DESCRIPTOR_TYPE = 1 << 4;
+
+        /// If the segment is present
+        const PRESENT = 1 << 7;
+    }
+}
+
+impl GenericAccessByte {
+    /// Get the inner `CodeDataSegmentAccessByte` if the access byte is of that type
+    pub const fn get_code_or_data(self) -> Option<CodeDataSegmentAccessByte> {
+        if self.contains(Self::DESCRIPTOR_TYPE) {
+            Some(unsafe { CodeDataSegmentAccessByte::from_bits_unchecked(self.bits) })
         } else {
-            write!(f, "{:#?}", unsafe { self.tss })
+            None
         }
+    }
+
+    /// Get the inner `SystemSegmentAccessByte` if the access byte is of that type
+    pub const fn get_system_segment(self) -> Option<SystemSegmentAccessByte> {
+        if !self.contains(Self::DESCRIPTOR_TYPE) {
+            Some(unsafe { SystemSegmentAccessByte::from_bits_unchecked(self.bits) })
+        } else {
+            None
+        }
+    }
+}
+
+impl core::fmt::Debug for GenericAccessByte {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(cd) = self.get_code_or_data() {
+            write!(f, "{:#?}", cd)
+        } else if let Some(ss) = self.get_system_segment() {
+            write!(f, "{:#?}", ss)
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+bitflags! {
+    pub struct Flags: u8 {
+        /// If set, this descriptor defines a 64 bit segment. When set, SIZE should be unset. Any other descriptor value requires this be unset
+        const LONG_MODE = 1 << 1;
+        /// If clear, this describes a 16 bit segment, else it describes a 32 bit protected segment
+        const SIZE = 1 << 2;
+        /// If unset, byte granularity is used, else page granularity
+        const GRANULARITY = 1 << 3;
+    }
+}
+
+impl Debug for Flags {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Flags")
+            .field(
+                "Granularity",
+                if self.contains(Self::GRANULARITY) {
+                    &"Page"
+                } else {
+                    &"Byte"
+                },
+            )
+            .field(
+                "Type",
+                &match (self.contains(Self::LONG_MODE), self.contains(Self::SIZE)) {
+                    (true, false) => "Long Mode (64-bit)",
+                    (false, true) => "Protected Mode (32-bit)",
+                    (false, false) => "Real Mode (16-bit)",
+                    (true, true) => "INVALID CONFIG",
+                },
+            )
+            .finish()
     }
 }
 
@@ -282,7 +335,7 @@ pub struct SegmentDescriptor {
     /// Bits 16-23 of the base
     pub base2: u8,
     /// The Access Byte
-    pub access_byte: AccessByte,
+    pub access_byte: GenericAccessByte,
     flags_and_limit: u8,
     /// Bits 24-31 of the base
     pub base3: u8,
@@ -290,83 +343,83 @@ pub struct SegmentDescriptor {
 
 impl SegmentDescriptor {
     /// Create a new zeroed Segment Descriptor
-    pub const fn new_unused() -> Self {
+    pub const fn new() -> Self {
         Self {
             limit: 0,
             base1: 0,
             base2: 0,
-            access_byte: AccessByte { raw: 0 },
+            access_byte: GenericAccessByte::from_bits_truncate(0),
             flags_and_limit: 0,
             base3: 0,
         }
     }
 
     /// Get the flags
-    ///
-    /// `Flag Values`
-    /// * G: Granularity flag, indicates the size the Limit value is scaled by. If clear (0), the Limit is in 1 Byte blocks (byte granularity). If set (1), the Limit is in 4 KiB blocks (page granularity).
-    /// * DB: Size flag. If clear (0), the descriptor defines a 16-bit protected mode segment. If set (1) it defines a 32-bit protected mode segment. A GDT can have both 16-bit and 32-bit selectors at once.
-    /// * L: Long-mode code flag. If set (1), the descriptor defines a 64-bit code segment. When set, Sz should always be clear. For any other type of segment (other code types or any data segment), it should be clear (0).
-    pub fn get_flags(&self) -> u8 {
-        (self.flags_and_limit >> 4) & 0xF
+    pub fn get_flags(&self) -> Flags {
+        unsafe { Flags::from_bits_unchecked((self.flags_and_limit >> 4) & 0xF) }
     }
 
     /// Set the flags
-    /// `Flag Values`
-    /// * G: Granularity flag, indicates the size the Limit value is scaled by. If clear (0), the Limit is in 1 Byte blocks (byte granularity). If set (1), the Limit is in 4 KiB blocks (page granularity).
-    /// * DB: Size flag. If clear (0), the descriptor defines a 16-bit protected mode segment. If set (1) it defines a 32-bit protected mode segment. A GDT can have both 16-bit and 32-bit selectors at once.
-    /// * L: Long-mode code flag. If set (1), the descriptor defines a 64-bit code segment. When set, Sz should always be clear. For any other type of segment (other code types or any data segment), it should be clear (0).
-    pub fn set_flags(&mut self, val: u8) {
-        self.flags_and_limit |= val << 4;
+    pub const fn flags(mut self, flags: Flags) -> Self {
+        self.flags_and_limit |= flags.bits() << 4;
+        self
     }
 
     /// Get the limit
     pub fn get_limit(&self) -> u32 {
-        (self.flags_and_limit as u32 & 0xF) << 16 | self.limit as u32
+        (self.flags_and_limit as u32) << 4 | self.limit as u32
     }
 
     /// Set the limit
-    pub fn set_limit(&mut self, val: u32) {
-        let l1u16: u16 = (val & 0xFFFF).try_into().unwrap();
-        let l1u8: u8 = ((val >> 4) & 0xF).try_into().unwrap();
+    pub const fn limit(mut self, val: u32) -> Self {
+        let l1u16: u16 = (val & 0xFFFF) as u16;
+        let l1u8: u8 = ((val >> 4) & 0xF) as u8;
         self.limit = l1u16;
         self.flags_and_limit |= l1u8 & 0xF;
+        self
     }
 
     /// Get the base in the segment
     pub fn get_base(&self) -> u32 {
         let b1: u32 = self.base1.into();
-        let b2: u32 = self.base2.into();
-        let b3: u32 = self.base3.into();
+        let b2: u32 = (self.base2 as u32) << 16;
+        let b3: u32 = (self.base3 as u32) << 24;
         b1 | b2 | b3
     }
 
     /// Set the base in the segment
-    pub fn set_base(&mut self, base: u32) {
-        let b1: u16 = (base & 0xFFFF).try_into().unwrap();
-        let b2: u8 = ((base << 16) & 0xFF).try_into().unwrap();
-        let b3: u8 = ((base << 24) & 0xFF).try_into().unwrap();
+    pub const fn base(mut self, base: u32) -> Self {
+        let b1: u16 = (base & 0xFFFF) as u16;
+        let b2: u8 = ((base >> 16) & 0xFF) as u8;
+        let b3: u8 = ((base >> 24) & 0xFF) as u8;
         self.base1 = b1;
         self.base2 = b2;
         self.base3 = b3;
+        self
     }
 }
 
-impl core::fmt::Debug for SystemSegmentDescriptor {
+impl core::fmt::Debug for SegmentDescriptor {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("SegmentDescriptor")
-            .field("limit", &format_args!("{:#X}", self.get_limit()))
-            .field("base", &format_args!("{:#X}", self.get_base()))
-            .field("access_byte", &self.access_byte)
-            .field("flags", &format_args!("{:#X}", self.get_flags()))
-            .finish_non_exhaustive()
+        if unsafe { core::mem::transmute::<SegmentDescriptor, u64>(*self) == 0 } {
+            f.debug_struct("SegmentDescriptor")
+                .field("Null", &true)
+                .finish()
+        } else {
+            f.debug_struct("SegmentDescriptor")
+                .field("Limit", &format_args!("{:#X}", self.get_limit()))
+                .field("Base", &format_args!("{:#X}", self.get_base()))
+                .field("AccessByte", &self.access_byte)
+                .field("Flags", &self.get_flags())
+                .finish_non_exhaustive()
+        }
     }
 }
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 /// An entry in the GDT
-pub struct SystemSegmentDescriptor {
+pub struct SystemSegmentDescriptorLongMode {
     /// The maximum addressable unit and the size of the segment, ignored in 64bit
     pub limit: u16,
     /// Bytes 0-3 of the base
@@ -374,9 +427,9 @@ pub struct SystemSegmentDescriptor {
     /// Bytes 4-7 of the base
     pub base2: u8,
     /// The access byte, determining what the segment is used for
-    pub access_byte: AccessByte,
+    pub access_byte: SystemSegmentAccessByte,
     /// Limit is the lower four bits, flags is the upper four bits
-    pub(crate) flags_and_limit: u8,
+    pub flags_and_limit: u8,
     /// Bytes 8-11 of the base
     pub base3: u8,
     /// Bytes 12-15 of the base
@@ -384,14 +437,14 @@ pub struct SystemSegmentDescriptor {
     reserved: u32,
 }
 
-impl SystemSegmentDescriptor {
+impl SystemSegmentDescriptorLongMode {
     /// Create a completely zeroed entry, for later modification.
     pub const fn new_unused() -> Self {
         Self {
             limit: 0,
             base1: 0,
             base2: 0,
-            access_byte: AccessByte { raw: 0 },
+            access_byte: SystemSegmentAccessByte::from_bits_truncate(0),
             flags_and_limit: 0,
             base3: 0,
             base4: 0,
@@ -453,13 +506,13 @@ impl SystemSegmentDescriptor {
     }
 }
 
-impl core::fmt::Debug for SegmentDescriptor {
+impl core::fmt::Debug for SystemSegmentDescriptorLongMode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SystemSegmentDescriptor")
             .field("limit", &format_args!("{:#X}", self.get_limit()))
             .field("base", &format_args!("{:#X}", self.get_base()))
             .field("access_byte", &self.access_byte)
-            .field("flags", &format_args!("{:#X}", self.get_flags()))
+            .field("flags", &self.get_flags())
             .finish_non_exhaustive()
     }
 }

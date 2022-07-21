@@ -3,12 +3,11 @@ use core::{
     fmt::{Error, Write},
 };
 
-use crate::traits::Init;
-
 /// Uart structure for reading and writing to itself
 pub struct Uart {}
 
-const COM_1: u16 = 0x3F8;
+/// COM Port 1 location
+pub const COM_1: u16 = 0x3F8;
 
 #[allow(dead_code)]
 impl Uart {
@@ -54,7 +53,7 @@ impl Uart {
 }
 
 /// Write a byte wide value to a port
-fn outb(val: u8, port: u16) {
+pub fn outb(val: u8, port: u16) {
     unsafe {
         asm!(
             "out dx, al",
@@ -65,7 +64,7 @@ fn outb(val: u8, port: u16) {
 }
 
 /// Read a byte wide value from a port
-fn inb(port: u16) -> u8 {
+pub fn inb(port: u16) -> u8 {
     let result: u8;
     unsafe {
         asm!(
@@ -75,33 +74,6 @@ fn inb(port: u16) -> u8 {
         )
     }
     result
-}
-
-impl Init for Uart {
-    fn pre_init(&mut self) {}
-
-    fn init(&mut self) {
-        outb(0, COM_1 + 1); // Disable all interrupts
-        outb(0x80, COM_1 + 3); // Enable DLAB (set baud rate divisor)
-        outb(0x03, COM_1); // Set divisor to 3 (lo byte) 38400 baud
-        outb(0, COM_1 + 1); //                  (hi byte)
-        outb(0x03, COM_1 + 3); // 8 bits, no parity, one stop bit
-        outb(0xC7, COM_1 + 2); // Enable FIFO, clear them, with 14-byte threshold
-        outb(0x08, COM_1 + 4); // IRQs enabled, RTS/DSR set
-        outb(0x1E, COM_1 + 4); // Set in loopback mode, test the serial chip
-        outb(0xAE, COM_1); // Test serial chip (send byte 0xAE and check if serial returns same byte)
-
-        // Check if serial is faulty (i.e: not same byte as sent)
-        if inb(COM_1) != 0xAE {
-            panic!("SERIAL FAILED LOOPBACK TEST");
-        }
-
-        // If serial is not faulty set it in normal operation mode
-        // (not-loopback with IRQs enabled and OUT#1 and OUT#2 bits enabled)
-        outb(0x0F, COM_1 + 4);
-    }
-
-    fn post_init(&mut self) {}
 }
 
 impl Write for Uart {

@@ -14,7 +14,9 @@
     prelude_import,
     ptr_metadata,
     abi_x86_interrupt,
-    stmt_expr_attributes
+    stmt_expr_attributes,
+    const_maybe_uninit_zeroed,
+    const_for
 )]
 #![feature(default_alloc_error_handler)]
 #![warn(missing_docs)]
@@ -48,7 +50,10 @@ mod macros;
 use crate::{
     arch::{
         peripherals::cpu::RSP,
-        structures::{install_interrupt_handler, SystemSegmentDescriptor},
+        structures::{
+            install_interrupt_handler, SegmentDescriptor, SegmentType, SegmentType64Bit,
+            SystemSegmentAccessByte, SystemSegmentDescriptorLongMode,
+        },
         MEMORY_MANAGER, PHYSICAL_ALLOCATOR,
     },
     interrupts::InterruptType,
@@ -59,8 +64,7 @@ use log::{debug, error, info, trace};
 use memory::allocators::HeapAllocator;
 
 use limine_protocol::{
-    requests::{KernelAddressRequest, MemoryMapRequest, SMPRequest, StackSizeRequest},
-    LimineRequest,
+    KernelAddressRequest, MemoryMapRequest, Request, SMPRequest, StackSizeRequest,
 };
 
 use crate::arch::structures::{GlobalDescriptorTable, SizedDescriptorTable, TaskStateSegment};
@@ -104,38 +108,24 @@ mod prelude {
 pub use prelude::rust_2021::*;
 
 #[used]
-static MEMORY_MAP: LimineRequest<MemoryMapRequest> = MemoryMapRequest {
-    id: MemoryMapRequest::ID,
-    revision: 0,
-    response: None,
-}
-.into_request();
+static MEMORY_MAP: Request<MemoryMapRequest> = MemoryMapRequest::default().into();
 
 #[used]
-static KERNEL_ADDRESS: LimineRequest<KernelAddressRequest> = KernelAddressRequest {
-    id: KernelAddressRequest::ID,
-    revision: 0,
-    response: None,
-}
-.into_request();
+static KERNEL_ADDRESS: Request<KernelAddressRequest> = KernelAddressRequest::default().into();
 
 #[used]
-static STACK_REQUEST: LimineRequest<StackSizeRequest> = StackSizeRequest {
+static STACK_REQUEST: Request<StackSizeRequest> = StackSizeRequest {
     stack_size: 1024 * 64,
-    id: StackSizeRequest::ID,
-    revision: 0,
-    response: None,
+    ..StackSizeRequest::default()
 }
-.into_request();
+.into();
 
 #[used]
-static SMP_REQUEST: LimineRequest<SMPRequest> = SMPRequest {
+static SMP_REQUEST: Request<SMPRequest> = SMPRequest {
     flags: 1,
-    id: SMPRequest::ID,
-    revision: 0,
-    response: None,
+    ..SMPRequest::default()
 }
-.into_request();
+.into();
 
 /// The Heap Allocator
 #[global_allocator]
@@ -244,18 +234,29 @@ fn kentry() -> ! {
         core::ptr::null_mut::<u8>().try_into().unwrap(),
     );
 
-    let mut sys_descriptor = SystemSegmentDescriptor::new_unused();
+    let mut sys_descriptor = SystemSegmentDescriptorLongMode::new_unused();
     sys_descriptor.set_flags(0x40);
     sys_descriptor.set_base(&tss as *const _ as u64);
     sys_descriptor.set_limit(core::mem::size_of_val(&tss) as u32);
-    sys_descriptor.access_byte = arch::structures::AccessByte { raw: 0x40 };
+    sys_descriptor.access_byte = SystemSegmentAccessByte::PRESENT
+        .descriptor_privilege_level(0)
+        .segment_type(SegmentType {
+            long: SegmentType64Bit::Tss64BitAvailable,
+        });
 
     trace!("Made tss and system descriptor");
 
+    let as_segd = unsafe { &*(arch::structures::GDT.as_ptr() as *const [SegmentDescriptor; 9]) };
+    debug!("{:#?}", as_segd);
+
+    /*
+
     unsafe {
-        (arch::structures::GDT.as_ptr().offset(7) as *mut SystemSegmentDescriptor)
+        (arch::structures::GDT.as_ptr().offset(7) as *mut SystemSegmentDescriptorLongMode)
             .write(sys_descriptor);
     }
+
+    */
 
     info!("Loading GDT");
 

@@ -1,6 +1,3 @@
-mod singleton;
-pub use singleton::Singleton;
-
 mod mutex;
 pub use mutex::{Mutex, MutexGuard};
 
@@ -12,6 +9,9 @@ pub use semaphore::Semaphore;
 
 mod spinlock;
 pub use spinlock::Spinlock;
+
+mod lazy;
+pub(crate) use lazy::{lazy_static, Lazy};
 
 /// Lie about something being sync
 #[repr(transparent)]

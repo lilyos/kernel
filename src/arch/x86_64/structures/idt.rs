@@ -322,6 +322,31 @@ pub unsafe fn install_interrupt_handler() {
         };
     }
 
+    macro_rules! create_generic_hook {
+        ($idx:expr, $segment:expr, $priv_level:expr) => {{
+            extern "x86-interrupt" fn handle_generic(frame: &mut ExceptionStackFrame) {
+                unsafe {
+                    INTERRUPT_HANDLER.expect("INTERRUPT HANDLER NOT INSTALLED")(
+                        InterruptType::Generic(crate::interrupts::GenericContext {
+                            pid: 0,
+                            iptr: frame.instruction_pointer,
+                            interrupt_number: $idx,
+                            error_code: None,
+                        }),
+                    )
+                }
+            }
+            idt[$idx] = InterruptDescriptor::new_interrupt()
+                .set_type_attributes(
+                    InterruptDescriptorTypeAttributes::new_interrupt()
+                        .set_present()
+                        .set_privilege_level($priv_level),
+                )
+                .set_isr_address(handle_generic)
+                .set_segment($segment);
+        }};
+    }
+
     use super::handlers::*;
     use super::GlobalDescriptorTable as GDT;
 
@@ -348,6 +373,231 @@ pub unsafe fn install_interrupt_handler() {
     create_interrupt_code!(SECURITY_VIOLATION, security_violation, GDT::KCODE, 0);
     create_interrupt!(NMI, nmi, GDT::KCODE, 0);
     create_interrupt_code!(DOUBLE_FAULT, double_fault, GDT::KCODE, 0);
+
+    create_generic_hook!(32, GDT::KCODE, 0);
+    create_generic_hook!(33, GDT::KCODE, 0);
+    create_generic_hook!(34, GDT::KCODE, 0);
+    create_generic_hook!(35, GDT::KCODE, 0);
+    create_generic_hook!(36, GDT::KCODE, 0);
+    create_generic_hook!(37, GDT::KCODE, 0);
+    create_generic_hook!(38, GDT::KCODE, 0);
+    create_generic_hook!(39, GDT::KCODE, 0);
+    create_generic_hook!(40, GDT::KCODE, 0);
+    create_generic_hook!(41, GDT::KCODE, 0);
+    create_generic_hook!(42, GDT::KCODE, 0);
+    create_generic_hook!(43, GDT::KCODE, 0);
+    create_generic_hook!(44, GDT::KCODE, 0);
+    create_generic_hook!(45, GDT::KCODE, 0);
+    create_generic_hook!(46, GDT::KCODE, 0);
+    create_generic_hook!(47, GDT::KCODE, 0);
+    create_generic_hook!(48, GDT::KCODE, 0);
+    create_generic_hook!(49, GDT::KCODE, 0);
+    create_generic_hook!(50, GDT::KCODE, 0);
+    create_generic_hook!(51, GDT::KCODE, 0);
+    create_generic_hook!(52, GDT::KCODE, 0);
+    create_generic_hook!(53, GDT::KCODE, 0);
+    create_generic_hook!(54, GDT::KCODE, 0);
+    create_generic_hook!(55, GDT::KCODE, 0);
+    create_generic_hook!(56, GDT::KCODE, 0);
+    create_generic_hook!(57, GDT::KCODE, 0);
+    create_generic_hook!(58, GDT::KCODE, 0);
+    create_generic_hook!(59, GDT::KCODE, 0);
+    create_generic_hook!(60, GDT::KCODE, 0);
+    create_generic_hook!(61, GDT::KCODE, 0);
+    create_generic_hook!(62, GDT::KCODE, 0);
+    create_generic_hook!(63, GDT::KCODE, 0);
+    create_generic_hook!(64, GDT::KCODE, 0);
+    create_generic_hook!(65, GDT::KCODE, 0);
+    create_generic_hook!(66, GDT::KCODE, 0);
+    create_generic_hook!(67, GDT::KCODE, 0);
+    create_generic_hook!(68, GDT::KCODE, 0);
+    create_generic_hook!(69, GDT::KCODE, 0);
+    create_generic_hook!(70, GDT::KCODE, 0);
+    create_generic_hook!(71, GDT::KCODE, 0);
+    create_generic_hook!(72, GDT::KCODE, 0);
+    create_generic_hook!(73, GDT::KCODE, 0);
+    create_generic_hook!(74, GDT::KCODE, 0);
+    create_generic_hook!(75, GDT::KCODE, 0);
+    create_generic_hook!(76, GDT::KCODE, 0);
+    create_generic_hook!(77, GDT::KCODE, 0);
+    create_generic_hook!(78, GDT::KCODE, 0);
+    create_generic_hook!(79, GDT::KCODE, 0);
+    create_generic_hook!(80, GDT::KCODE, 0);
+    create_generic_hook!(81, GDT::KCODE, 0);
+    create_generic_hook!(82, GDT::KCODE, 0);
+    create_generic_hook!(83, GDT::KCODE, 0);
+    create_generic_hook!(84, GDT::KCODE, 0);
+    create_generic_hook!(85, GDT::KCODE, 0);
+    create_generic_hook!(86, GDT::KCODE, 0);
+    create_generic_hook!(87, GDT::KCODE, 0);
+    create_generic_hook!(88, GDT::KCODE, 0);
+    create_generic_hook!(89, GDT::KCODE, 0);
+    create_generic_hook!(90, GDT::KCODE, 0);
+    create_generic_hook!(91, GDT::KCODE, 0);
+    create_generic_hook!(92, GDT::KCODE, 0);
+    create_generic_hook!(93, GDT::KCODE, 0);
+    create_generic_hook!(94, GDT::KCODE, 0);
+    create_generic_hook!(95, GDT::KCODE, 0);
+    create_generic_hook!(96, GDT::KCODE, 0);
+    create_generic_hook!(97, GDT::KCODE, 0);
+    create_generic_hook!(98, GDT::KCODE, 0);
+    create_generic_hook!(99, GDT::KCODE, 0);
+    create_generic_hook!(100, GDT::KCODE, 0);
+    create_generic_hook!(101, GDT::KCODE, 0);
+    create_generic_hook!(102, GDT::KCODE, 0);
+    create_generic_hook!(103, GDT::KCODE, 0);
+    create_generic_hook!(104, GDT::KCODE, 0);
+    create_generic_hook!(105, GDT::KCODE, 0);
+    create_generic_hook!(106, GDT::KCODE, 0);
+    create_generic_hook!(107, GDT::KCODE, 0);
+    create_generic_hook!(108, GDT::KCODE, 0);
+    create_generic_hook!(109, GDT::KCODE, 0);
+    create_generic_hook!(110, GDT::KCODE, 0);
+    create_generic_hook!(111, GDT::KCODE, 0);
+    create_generic_hook!(112, GDT::KCODE, 0);
+    create_generic_hook!(113, GDT::KCODE, 0);
+    create_generic_hook!(114, GDT::KCODE, 0);
+    create_generic_hook!(115, GDT::KCODE, 0);
+    create_generic_hook!(116, GDT::KCODE, 0);
+    create_generic_hook!(117, GDT::KCODE, 0);
+    create_generic_hook!(118, GDT::KCODE, 0);
+    create_generic_hook!(119, GDT::KCODE, 0);
+    create_generic_hook!(120, GDT::KCODE, 0);
+    create_generic_hook!(121, GDT::KCODE, 0);
+    create_generic_hook!(122, GDT::KCODE, 0);
+    create_generic_hook!(123, GDT::KCODE, 0);
+    create_generic_hook!(124, GDT::KCODE, 0);
+    create_generic_hook!(125, GDT::KCODE, 0);
+    create_generic_hook!(126, GDT::KCODE, 0);
+    create_generic_hook!(127, GDT::KCODE, 0);
+    create_generic_hook!(128, GDT::KCODE, 0);
+    create_generic_hook!(129, GDT::KCODE, 0);
+    create_generic_hook!(130, GDT::KCODE, 0);
+    create_generic_hook!(131, GDT::KCODE, 0);
+    create_generic_hook!(132, GDT::KCODE, 0);
+    create_generic_hook!(133, GDT::KCODE, 0);
+    create_generic_hook!(134, GDT::KCODE, 0);
+    create_generic_hook!(135, GDT::KCODE, 0);
+    create_generic_hook!(136, GDT::KCODE, 0);
+    create_generic_hook!(137, GDT::KCODE, 0);
+    create_generic_hook!(138, GDT::KCODE, 0);
+    create_generic_hook!(139, GDT::KCODE, 0);
+    create_generic_hook!(140, GDT::KCODE, 0);
+    create_generic_hook!(141, GDT::KCODE, 0);
+    create_generic_hook!(142, GDT::KCODE, 0);
+    create_generic_hook!(143, GDT::KCODE, 0);
+    create_generic_hook!(144, GDT::KCODE, 0);
+    create_generic_hook!(145, GDT::KCODE, 0);
+    create_generic_hook!(146, GDT::KCODE, 0);
+    create_generic_hook!(147, GDT::KCODE, 0);
+    create_generic_hook!(148, GDT::KCODE, 0);
+    create_generic_hook!(149, GDT::KCODE, 0);
+    create_generic_hook!(150, GDT::KCODE, 0);
+    create_generic_hook!(151, GDT::KCODE, 0);
+    create_generic_hook!(152, GDT::KCODE, 0);
+    create_generic_hook!(153, GDT::KCODE, 0);
+    create_generic_hook!(154, GDT::KCODE, 0);
+    create_generic_hook!(155, GDT::KCODE, 0);
+    create_generic_hook!(156, GDT::KCODE, 0);
+    create_generic_hook!(157, GDT::KCODE, 0);
+    create_generic_hook!(158, GDT::KCODE, 0);
+    create_generic_hook!(159, GDT::KCODE, 0);
+    create_generic_hook!(160, GDT::KCODE, 0);
+    create_generic_hook!(161, GDT::KCODE, 0);
+    create_generic_hook!(162, GDT::KCODE, 0);
+    create_generic_hook!(163, GDT::KCODE, 0);
+    create_generic_hook!(164, GDT::KCODE, 0);
+    create_generic_hook!(165, GDT::KCODE, 0);
+    create_generic_hook!(166, GDT::KCODE, 0);
+    create_generic_hook!(167, GDT::KCODE, 0);
+    create_generic_hook!(168, GDT::KCODE, 0);
+    create_generic_hook!(169, GDT::KCODE, 0);
+    create_generic_hook!(170, GDT::KCODE, 0);
+    create_generic_hook!(171, GDT::KCODE, 0);
+    create_generic_hook!(172, GDT::KCODE, 0);
+    create_generic_hook!(173, GDT::KCODE, 0);
+    create_generic_hook!(174, GDT::KCODE, 0);
+    create_generic_hook!(175, GDT::KCODE, 0);
+    create_generic_hook!(176, GDT::KCODE, 0);
+    create_generic_hook!(177, GDT::KCODE, 0);
+    create_generic_hook!(178, GDT::KCODE, 0);
+    create_generic_hook!(179, GDT::KCODE, 0);
+    create_generic_hook!(180, GDT::KCODE, 0);
+    create_generic_hook!(181, GDT::KCODE, 0);
+    create_generic_hook!(182, GDT::KCODE, 0);
+    create_generic_hook!(183, GDT::KCODE, 0);
+    create_generic_hook!(184, GDT::KCODE, 0);
+    create_generic_hook!(185, GDT::KCODE, 0);
+    create_generic_hook!(186, GDT::KCODE, 0);
+    create_generic_hook!(187, GDT::KCODE, 0);
+    create_generic_hook!(188, GDT::KCODE, 0);
+    create_generic_hook!(189, GDT::KCODE, 0);
+    create_generic_hook!(190, GDT::KCODE, 0);
+    create_generic_hook!(191, GDT::KCODE, 0);
+    create_generic_hook!(192, GDT::KCODE, 0);
+    create_generic_hook!(193, GDT::KCODE, 0);
+    create_generic_hook!(194, GDT::KCODE, 0);
+    create_generic_hook!(195, GDT::KCODE, 0);
+    create_generic_hook!(196, GDT::KCODE, 0);
+    create_generic_hook!(197, GDT::KCODE, 0);
+    create_generic_hook!(198, GDT::KCODE, 0);
+    create_generic_hook!(199, GDT::KCODE, 0);
+    create_generic_hook!(200, GDT::KCODE, 0);
+    create_generic_hook!(201, GDT::KCODE, 0);
+    create_generic_hook!(202, GDT::KCODE, 0);
+    create_generic_hook!(203, GDT::KCODE, 0);
+    create_generic_hook!(204, GDT::KCODE, 0);
+    create_generic_hook!(205, GDT::KCODE, 0);
+    create_generic_hook!(206, GDT::KCODE, 0);
+    create_generic_hook!(207, GDT::KCODE, 0);
+    create_generic_hook!(208, GDT::KCODE, 0);
+    create_generic_hook!(209, GDT::KCODE, 0);
+    create_generic_hook!(210, GDT::KCODE, 0);
+    create_generic_hook!(211, GDT::KCODE, 0);
+    create_generic_hook!(212, GDT::KCODE, 0);
+    create_generic_hook!(213, GDT::KCODE, 0);
+    create_generic_hook!(214, GDT::KCODE, 0);
+    create_generic_hook!(215, GDT::KCODE, 0);
+    create_generic_hook!(216, GDT::KCODE, 0);
+    create_generic_hook!(217, GDT::KCODE, 0);
+    create_generic_hook!(218, GDT::KCODE, 0);
+    create_generic_hook!(219, GDT::KCODE, 0);
+    create_generic_hook!(220, GDT::KCODE, 0);
+    create_generic_hook!(221, GDT::KCODE, 0);
+    create_generic_hook!(222, GDT::KCODE, 0);
+    create_generic_hook!(223, GDT::KCODE, 0);
+    create_generic_hook!(224, GDT::KCODE, 0);
+    create_generic_hook!(225, GDT::KCODE, 0);
+    create_generic_hook!(226, GDT::KCODE, 0);
+    create_generic_hook!(227, GDT::KCODE, 0);
+    create_generic_hook!(228, GDT::KCODE, 0);
+    create_generic_hook!(229, GDT::KCODE, 0);
+    create_generic_hook!(230, GDT::KCODE, 0);
+    create_generic_hook!(231, GDT::KCODE, 0);
+    create_generic_hook!(232, GDT::KCODE, 0);
+    create_generic_hook!(233, GDT::KCODE, 0);
+    create_generic_hook!(234, GDT::KCODE, 0);
+    create_generic_hook!(235, GDT::KCODE, 0);
+    create_generic_hook!(236, GDT::KCODE, 0);
+    create_generic_hook!(237, GDT::KCODE, 0);
+    create_generic_hook!(238, GDT::KCODE, 0);
+    create_generic_hook!(239, GDT::KCODE, 0);
+    create_generic_hook!(240, GDT::KCODE, 0);
+    create_generic_hook!(241, GDT::KCODE, 0);
+    create_generic_hook!(242, GDT::KCODE, 0);
+    create_generic_hook!(243, GDT::KCODE, 0);
+    create_generic_hook!(244, GDT::KCODE, 0);
+    create_generic_hook!(245, GDT::KCODE, 0);
+    create_generic_hook!(246, GDT::KCODE, 0);
+    create_generic_hook!(247, GDT::KCODE, 0);
+    create_generic_hook!(248, GDT::KCODE, 0);
+    create_generic_hook!(249, GDT::KCODE, 0);
+    create_generic_hook!(250, GDT::KCODE, 0);
+    create_generic_hook!(251, GDT::KCODE, 0);
+    create_generic_hook!(252, GDT::KCODE, 0);
+    create_generic_hook!(253, GDT::KCODE, 0);
+    create_generic_hook!(254, GDT::KCODE, 0);
+    create_generic_hook!(255, GDT::KCODE, 0);
 
     IDT.load();
 }
