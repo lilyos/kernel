@@ -45,18 +45,12 @@ pub fn is_64_bit_mode() -> bool {
 #[used]
 pub static mut GDT: [u64; 9] = [
     0,
-    // 0b0000_0000_0010_0000_1001_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    // 0b0000_0000_0100_0000_1001_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    // 0b0000_0000_0100_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    // 0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    // 0b0000_0000_0010_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    // 0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
-    0x0000000000209A00,
-    0x0000000000009200,
-    0x000000000040FA00,
-    0x000000000040F200,
-    0x000000000020FA00,
-    0x000000000000F200,
+    0b0000_0000_0010_0000_1001_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0100_0000_1001_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0100_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0010_0000_1111_1010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0100_0000_1111_0010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000,
     0,
     0,
 ];
@@ -285,12 +279,12 @@ impl core::fmt::Debug for GenericAccessByte {
 
 bitflags! {
     pub struct Flags: u8 {
-        /// If set, this descriptor defines a 64 bit segment. When set, SIZE should be unset. Any other descriptor value requires this be unset
+        /// If set, this descriptor defines a 64 bit code segment. When set, SIZE should be unset. Any other descriptor value requires this be unset
         const LONG_MODE = 1 << 1;
         /// If clear, this describes a 16 bit segment, else it describes a 32 bit protected segment
-        const SIZE = 1 << 2;
+        const PROTECTED_MODE = 1 << 2;
         /// If unset, byte granularity is used, else page granularity
-        const GRANULARITY = 1 << 3;
+        const PAGE_GRANULARITY = 1 << 3;
     }
 }
 
@@ -299,7 +293,7 @@ impl Debug for Flags {
         f.debug_struct("Flags")
             .field(
                 "Granularity",
-                if self.contains(Self::GRANULARITY) {
+                if self.contains(Self::PAGE_GRANULARITY) {
                     &"Page"
                 } else {
                     &"Byte"
@@ -307,7 +301,10 @@ impl Debug for Flags {
             )
             .field(
                 "Type",
-                &match (self.contains(Self::LONG_MODE), self.contains(Self::SIZE)) {
+                &match (
+                    self.contains(Self::LONG_MODE),
+                    self.contains(Self::PROTECTED_MODE),
+                ) {
                     (true, false) => "Long Mode (64-bit)",
                     (false, true) => "Protected Mode (32-bit)",
                     (false, false) => "Real Mode (16-bit)",
@@ -397,6 +394,17 @@ impl SegmentDescriptor {
         self.base3 = b3;
         self
     }
+
+    /// Set the access byte
+    pub const fn access_byte(mut self, ab: GenericAccessByte) -> Self {
+        self.access_byte = ab;
+        self
+    }
+
+    /// Get as a u64
+    pub const fn to_u64(self) -> u64 {
+        unsafe { core::mem::transmute(self) }
+    }
 }
 
 impl core::fmt::Debug for SegmentDescriptor {
@@ -407,6 +415,7 @@ impl core::fmt::Debug for SegmentDescriptor {
                 .finish()
         } else {
             f.debug_struct("SegmentDescriptor")
+                .field("Binary", &format_args!("{:#b}", self.to_u64()))
                 .field("Limit", &format_args!("{:#X}", self.get_limit()))
                 .field("Base", &format_args!("{:#X}", self.get_base()))
                 .field("AccessByte", &self.access_byte)

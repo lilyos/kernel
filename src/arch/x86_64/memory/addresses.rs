@@ -1,12 +1,10 @@
-use core::{fmt::Debug, marker::PhantomData};
+use core::fmt::Debug;
 
 use crate::{
+    errors::{AddressError, GenericError},
     macros::bitflags::bitflags,
-    memory::{
-        addresses::{Physical, Virtual},
-        errors::AddressError,
-        utilities::is_address_canonical,
-    },
+    memory::utilities::is_address_canonical,
+    traits::RawAddress as RawAddressTrait,
 };
 
 /// The underlying type used by addresses
@@ -32,18 +30,21 @@ bitflags! {
 
 #[derive(Clone, Copy)]
 /// The Raw Address struct for x86_64
-pub struct RawAddress<T> {
+pub struct RawAddress {
     address: AddressWithFlags,
-    _type: PhantomData<T>,
 }
 
-impl<T> RawAddress<T> {
+impl RawAddress {
     /// The address mask
     pub const ADDRESS_MASK: usize = 0x000F_FFFF_FFFF_F000;
 
     /// Create a new raw address
-    pub fn new(ptr: *const ()) -> Result<Self, AddressError> {
-        if !is_address_canonical(ptr as usize, 48) {
+    pub fn new(ptr: u64) -> Result<Self, AddressError> {
+        if !is_address_canonical(
+            ptr.try_into()
+                .map_err(|_| AddressError::Generic(GenericError::IntConversionError))?,
+            48,
+        ) {
             Err(AddressError::AddressNonCanonical)
         } else {
             Ok(Self {
@@ -54,19 +55,7 @@ impl<T> RawAddress<T> {
                             .map_err(|_| AddressError::ConversionError)?,
                     )
                 },
-                _type: PhantomData,
             })
-        }
-    }
-
-    /// Create a new raw address without checking for platform requirements
-    ///
-    /// # Safety
-    /// The caller must ensure the pointer is valid for the platform
-    pub unsafe fn new_unchecked(ptr: *const ()) -> Self {
-        Self {
-            address: AddressWithFlags::from_bits_unchecked(ptr as u64),
-            _type: PhantomData,
         }
     }
 
@@ -84,9 +73,7 @@ impl<T> RawAddress<T> {
     pub fn get_flags_mut(&mut self) -> &mut AddressWithFlags {
         &mut self.address
     }
-}
 
-impl RawAddress<Virtual> {
     /// Bits 39-47
     pub fn p4_index(&self) -> usize {
         (self.address.bits() as usize >> 39) & 0x1FF
@@ -123,7 +110,7 @@ impl RawAddress<Virtual> {
     }
 }
 
-impl Debug for RawAddress<Virtual> {
+impl Debug for RawAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("VirtualAddress")
             .field("Address", &format_args!("{:#x}", &self.get_address_raw()))
@@ -138,10 +125,26 @@ impl Debug for RawAddress<Virtual> {
     }
 }
 
-impl Debug for RawAddress<Physical> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("RawAddress")
-            .field("Address", &format_args!("{:#x}", &self.address.bits()))
-            .finish()
+impl RawAddressTrait for RawAddress {
+    type Error = AddressError;
+
+    type AddressType = RawAddress;
+
+    type UnderlyingType = AddressType;
+
+    fn new_address(addr: Self::UnderlyingType) -> Result<Self::AddressType, Self::Error> {
+        Self::new(addr)
+    }
+
+    fn address_valid<T>(addr: crate::memory::addresses::Address<T>) -> bool {
+        if let Ok(addr) = addr.inner().address.bits().try_into() {
+            is_address_canonical(addr, 48)
+        } else {
+            false
+        }
+    }
+
+    fn into_raw(self) -> Self::UnderlyingType {
+        self.address.bits
     }
 }

@@ -1,14 +1,23 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    alloc::{AllocError, Allocator, Layout},
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use limine_protocol::structures::memory_map_entry::{EntryType, MemoryMapEntry};
 use log::{debug, info};
 
 use crate::{
+    arch::PlatformType,
     collections::BitSlice,
-    memory::{allocators::AllocGuard, errors::AllocatorError, utilities::align},
+    errors::GenericError,
+    memory::{errors::AllocatorError, utilities::align},
     sync::RwLock,
-    traits::PhysicalMemoryAllocator,
+    traits::Init,
 };
+
+type RawAddress = <PlatformType as crate::traits::Platform>::RawAddress;
+type UnderlyingType = <RawAddress as crate::traits::RawAddress>::UnderlyingType;
 
 /// The Lotus OS Page Allocator
 pub struct PageAllocator<'a> {
@@ -60,6 +69,46 @@ impl<'a> PageAllocator<'a> {
         total
     }
 
+    const fn address_for_block(&self, block_index: usize) -> *const u8 {
+        unsafe { self.region.add(block_index * Self::BLOCK_SIZE) }
+    }
+
+    const fn address_fits_alignment(address: usize, alignment: usize) -> bool {
+        address % alignment == 0
+    }
+
+    const fn page_count_for_layout(layout: Layout) -> usize {
+        align(layout.size(), Self::BLOCK_SIZE) / Self::BLOCK_SIZE
+    }
+
+    fn get_zone_for_layout(&self, layout: Layout) -> Option<usize> {
+        let page_count = Self::page_count_for_layout(layout);
+
+        let mut block = 0;
+        let mut consecutive = 0;
+        {
+            let scratch = self.scratch.read();
+            let iter = scratch.iter();
+            for (index, item) in iter.enumerate() {
+                if consecutive == page_count
+                    && Self::address_fits_alignment(
+                        self.address_for_block(block) as usize,
+                        layout.align(),
+                    )
+                {
+                    return Some(block);
+                } else if !item {
+                    consecutive += 1;
+                } else {
+                    block = index + 1;
+                    consecutive = 0;
+                }
+            }
+        }
+
+        None
+    }
+
     /// Find a series of zones with a specific size
     ///
     /// # Arguments
@@ -102,31 +151,23 @@ impl<'a> PageAllocator<'a> {
     }
 }
 
-impl<'a> PhysicalMemoryAllocator for PageAllocator<'a> {
-    type PAResult<T> = Result<T, AllocatorError>;
+impl<'a> Init for PageAllocator<'a> {
+    type Error = AllocatorError;
 
-    /// Initialize the allocator
-    ///
-    /// # Arguments
-    /// * `mmap` - Slice of memory descriptors
-    ///
-    /// # Example
-    /// ```
-    /// // Assume mmap is a slice of MemoryDescriptor
-    /// let alloc = PageAllocator::new();
-    /// unsafe { alloc.init(mmap) }
-    /// ```
-    unsafe fn init(&self, mmap: &[&MemoryMapEntry]) -> Result<(), AllocatorError> {
+    type Input = &'a [&'a MemoryMapEntry];
+
+    fn init(&self, mmap: Self::Input) -> Result<(), Self::Error> {
         assert!(!mmap.is_empty());
         let mut pages: usize = 0;
         let mut end: usize = 0;
 
         for mentry in mmap.iter() {
-            let mend: usize = mentry.end().try_into().unwrap();
-            if mend > end {
-                end = mend as usize;
+            let mmen_end: usize = mentry.end().try_into().unwrap();
+            if mmen_end > end {
+                end = mmen_end as usize;
             }
-            pages += (mend - TryInto::<usize>::try_into(mentry.base).unwrap()) / Self::BLOCK_SIZE;
+            pages +=
+                (mmen_end - TryInto::<usize>::try_into(mentry.base).unwrap()) / Self::BLOCK_SIZE;
         }
         let scratch_bytes = align(end / 4096, 8) / 8;
         self.pages.store(pages, Ordering::SeqCst);
@@ -135,24 +176,46 @@ impl<'a> PhysicalMemoryAllocator for PageAllocator<'a> {
 
         let scratch_start: usize = scratch_entry.base.try_into().unwrap();
 
-        let scratch_end = align(scratch_start + scratch_bytes, Self::BLOCK_SIZE) - 1;
+        let scratch_end = align(
+            (scratch_start + scratch_bytes)
+                .try_into()
+                .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?,
+            Self::BLOCK_SIZE,
+        ) - 1;
 
         {
             let mut sscratch = self.scratch.write();
-            sscratch.init(scratch_start as *mut u8, scratch_bytes);
+            unsafe {
+                sscratch.init(
+                    scratch_start as *mut u8,
+                    scratch_bytes
+                        .try_into()
+                        .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?,
+                )
+            };
             sscratch.set(0, true);
             for i in mmap.iter() {
                 for a in (i.base..i.end()).step_by(4096) {
-                    let a: usize = a.try_into().unwrap();
                     if a < 4096
-                        || (a >= scratch_start && a < scratch_end)
+                        || (a
+                            >= scratch_start.try_into().map_err(|_| {
+                                AllocatorError::Generic(GenericError::IntConversionError)
+                            })?
+                            && a < scratch_end.try_into().map_err(|_| {
+                                AllocatorError::Generic(GenericError::IntConversionError)
+                            })?)
                         || i.kind == EntryType::Reserved
                         || i.kind == EntryType::AcpiNonVolatile
                         || i.kind == EntryType::BadMemory
                         || i.kind == EntryType::Framebuffer
                         || i.kind == EntryType::KernelAndModules
                     {
-                        sscratch.set(a / 4096, true)
+                        sscratch.set(
+                            (a / 4096).try_into().map_err(|_| {
+                                AllocatorError::Generic(GenericError::IntConversionError)
+                            })?,
+                            true,
+                        )
                     }
                 }
             }
@@ -170,69 +233,34 @@ impl<'a> PhysicalMemoryAllocator for PageAllocator<'a> {
 
         Ok(())
     }
+}
 
-    /// Allocate physical memory, returning a pointer to the allocated memory and the block that the allocation started on
-    ///
-    /// # Arguments
-    /// * `size` - Size of memory desired in kilobytes
-    ///
-    /// # Example
-    /// ```
-    /// // Assume mmap is a slice of MemoryDescriptor
-    /// let alloc = PageAllocator::new();
-    /// unsafe { alloc.init(mmap) }
-    ///
-    /// let (ptr, size) = alloc.alloc(4).unwrap();
-    /// ```
-    fn alloc<'b>(&self, size: usize) -> Result<AllocGuard<'b>, AllocatorError> {
-        assert!(size < (self.pages.load(Ordering::SeqCst) * Self::BLOCK_SIZE));
-
-        let pages = align(size * 1024, Self::BLOCK_SIZE) / Self::BLOCK_SIZE;
-
-        let found = match self.get_zone_with_size(pages) {
-            Some(v) => v,
-            None => {
-                if self.get_used() == self.pages.load(Ordering::SeqCst) {
-                    return Err(AllocatorError::OutOfMemory);
-                } else {
-                    return Err(AllocatorError::NoLargeEnoughRegion);
-                }
-            }
-        };
-
-        assert!(found != 0, "The first page was found as an allocation");
-
-        self.set_range(pages, found, true);
-
-        Ok(unsafe {
-            AllocGuard::new(
-                found,
-                size,
-                self.region.add(found * Self::BLOCK_SIZE) as *mut u8,
-            )
-        })
-    }
-
-    /// Deallocate physical memory, freeing it
-    ///
-    /// # Arguments
-    /// * `kilos_allocated` - How many blocks/kilobytes were allocated
-    /// * `block_start` - The block the allocation started on
-    fn dealloc(&self, block_start: usize, kilos_allocated: usize) -> Result<(), AllocatorError> {
-        assert!(block_start < self.pages.load(Ordering::SeqCst));
-
-        let block_count = align(kilos_allocated * 1024, Self::BLOCK_SIZE) / Self::BLOCK_SIZE;
-
-        {
-            let scratch = self.scratch.read();
-            if !scratch[block_start] {
-                return Err(AllocatorError::DoubleFree);
-            }
+unsafe impl<'a> Allocator for PageAllocator<'a> {
+    fn allocate(
+        &self,
+        layout: Layout,
+    ) -> Result<core::ptr::NonNull<[u8]>, core::alloc::AllocError> {
+        if layout.size() >= self.pages.load(Ordering::SeqCst) * Self::BLOCK_SIZE {
+            return Err(AllocError);
         }
 
-        self.set_range(block_count, block_start, false);
+        let pages = Self::page_count_for_layout(layout);
+        let block = self.get_zone_for_layout(layout).ok_or(AllocError)?;
 
-        Ok(())
+        let ptr = NonNull::from_raw_parts(
+            NonNull::new(self.address_for_block(block) as *mut ()).ok_or(AllocError)?,
+            layout.size(),
+        );
+
+        self.set_range(pages, block, true);
+
+        Ok(ptr)
+    }
+
+    unsafe fn deallocate(&self, ptr: core::ptr::NonNull<u8>, layout: core::alloc::Layout) {
+        let pages = Self::page_count_for_layout(layout);
+
+        self.set_range(pages, ptr.as_ptr() as usize / 4096, false);
     }
 }
 

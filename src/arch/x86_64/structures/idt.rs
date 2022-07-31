@@ -208,10 +208,6 @@ pub struct ExceptionStackFrame {
 /// Function signature for handling interrupts for this platform
 pub type InterruptHandler = unsafe extern "x86-interrupt" fn(&mut ExceptionStackFrame);
 
-/// The kernel's IDT
-#[used]
-static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
-
 /// The generic kernel interrupt handler
 #[used]
 pub static mut INTERRUPT_HANDLER: Option<fn(InterruptType)> = None;
@@ -221,6 +217,9 @@ pub static mut INTERRUPT_HANDLER: Option<fn(InterruptType)> = None;
 /// This may only be called from one core, otherwise read/write tearing may occur
 #[allow(dead_code)]
 pub unsafe fn install_interrupt_handler() {
+    use super::handlers::*;
+    use super::GlobalDescriptorTable as GDT;
+
     // DivideByZero
     /// Divide by zero
     const DIVIDE_BY_ZERO: usize = 0;
@@ -294,7 +293,11 @@ pub unsafe fn install_interrupt_handler() {
     // #15 Reserved
     // #22-27 Reserved
 
-    let idt = &mut IDT.inner;
+    use crate::traits::Platform;
+
+    let idt_o = unsafe { crate::arch::PlatformManager.get_interrupt_manager().idt() };
+
+    let idt = { idt_o.inner };
 
     macro_rules! create_interrupt {
         ($idx:expr, $handler:ident, $segment:expr, $priv_level:expr) => {
@@ -329,7 +332,7 @@ pub unsafe fn install_interrupt_handler() {
                     INTERRUPT_HANDLER.expect("INTERRUPT HANDLER NOT INSTALLED")(
                         InterruptType::Generic(crate::interrupts::GenericContext {
                             pid: 0,
-                            iptr: frame.instruction_pointer,
+                            iptr: frame.instruction_pointer.try_into().unwrap(),
                             interrupt_number: $idx,
                             error_code: None,
                         }),
@@ -346,9 +349,6 @@ pub unsafe fn install_interrupt_handler() {
                 .set_segment($segment);
         }};
     }
-
-    use super::handlers::*;
-    use super::GlobalDescriptorTable as GDT;
 
     create_interrupt!(DIVIDE_BY_ZERO, divide_by_zero, GDT::KCODE, 0);
     create_interrupt!(DEBUG, debug, GDT::KCODE, 0);
@@ -599,5 +599,5 @@ pub unsafe fn install_interrupt_handler() {
     create_generic_hook!(254, GDT::KCODE, 0);
     create_generic_hook!(255, GDT::KCODE, 0);
 
-    IDT.load();
+    idt_o.load();
 }

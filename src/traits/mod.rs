@@ -1,5 +1,20 @@
-mod physical_memory_allocator;
-pub use physical_memory_allocator::PhysicalMemoryAllocator;
+mod init;
+pub use init::Init;
 
-mod virtual_memory_manager;
-pub use virtual_memory_manager::{VirtualMemoryManager, VirtualMemoryManagerError};
+mod interrupt_manager;
+pub use interrupt_manager::InterruptManager;
+
+mod memory_manager;
+pub use memory_manager::{MemoryFlags, MemoryManager};
+
+mod platform;
+pub use platform::Platform;
+
+mod power;
+pub use power::{PowerManager, PowerOffKind, PowerState};
+
+mod raw_address;
+pub use raw_address::RawAddress;
+
+mod timer_manager;
+pub use timer_manager::TimerManager;

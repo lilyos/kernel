@@ -1,3 +1,5 @@
+use crate::memory::addresses::{Address, Virtual};
+
 /// Possible types of interrupts
 #[repr(C)]
 #[derive(Debug)]
@@ -40,7 +42,7 @@ pub struct DivideByZeroContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -52,7 +54,7 @@ pub struct DebugBreakpointContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -64,7 +66,7 @@ pub struct GenericContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// The interrupt's number
     pub interrupt_number: u64,
     /// Optional Error Code
@@ -78,7 +80,7 @@ pub struct InvalidInstructionContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -90,7 +92,7 @@ pub struct IllegalAccessContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// If this was false, it was an attempt to read a privileged area
     pub page_unmapped: bool,
     /// Optional error code
@@ -114,7 +116,7 @@ pub struct CheckFailedContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// The message for what check failed
     pub message: &'static str,
     /// Optional error code
@@ -128,7 +130,7 @@ pub struct SIMDErrorContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -140,7 +142,7 @@ pub struct FloatingPointContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -152,7 +154,7 @@ pub struct VirtualizationErrorContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -164,7 +166,7 @@ pub struct HypervisorInterferenceContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -176,7 +178,7 @@ pub struct ControlProtectionContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }
@@ -188,7 +190,7 @@ pub struct NonMaskableInterruptContext {
     /// The ID of the offending process
     pub pid: u64,
     /// The instruction pointer
-    pub iptr: *mut u8,
+    pub iptr: Address<Virtual>,
     /// Optional error code
     pub error_code: Option<u64>,
 }

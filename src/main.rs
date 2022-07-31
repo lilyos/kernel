@@ -6,7 +6,6 @@
     asm_sym,
     naked_functions,
     asm_const,
-    const_slice_from_raw_parts,
     const_mut_refs,
     associated_type_bounds,
     generic_associated_types,
@@ -16,18 +15,32 @@
     abi_x86_interrupt,
     stmt_expr_attributes,
     const_maybe_uninit_zeroed,
-    const_for
+    const_for,
+    const_trait_impl,
+    const_convert,
+    allocator_api
+)]
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    unused_features,
+    missing_docs
 )]
 #![feature(default_alloc_error_handler)]
-#![warn(missing_docs)]
 
 //! This is the Lotus kernel
+
+// BEGIN: Modules, Macros, and Prelude
 
 /// Collections used across the kernel
 pub mod collections;
 
 /// Structures relating to memory management
 pub mod memory;
+
+pub mod errors;
 
 /// Architecture-specific structures
 pub mod arch;
@@ -46,28 +59,6 @@ pub mod logger;
 
 /// Macros
 mod macros;
-
-use crate::{
-    arch::{
-        peripherals::cpu::RSP,
-        structures::{
-            install_interrupt_handler, SegmentDescriptor, SegmentType, SegmentType64Bit,
-            SystemSegmentAccessByte, SystemSegmentDescriptorLongMode,
-        },
-        MEMORY_MANAGER, PHYSICAL_ALLOCATOR,
-    },
-    interrupts::InterruptType,
-    traits::{PhysicalMemoryAllocator, VirtualMemoryManager},
-};
-
-use log::{debug, error, info, trace};
-use memory::allocators::HeapAllocator;
-
-use limine_protocol::{
-    KernelAddressRequest, MemoryMapRequest, Request, SMPRequest, StackSizeRequest,
-};
-
-use crate::arch::structures::{GlobalDescriptorTable, SizedDescriptorTable, TaskStateSegment};
 
 mod prelude {
     pub mod rust_2021 {
@@ -107,6 +98,18 @@ mod prelude {
 #[prelude_import]
 pub use prelude::rust_2021::*;
 
+// END: Modules, Macros, and Prelude
+// Actual code begins here
+
+use log::{debug, error, info, trace};
+use memory::allocators::HeapAllocator;
+
+use crate::{arch::PlatformManager, interrupts::InterruptType, traits::Init};
+
+use limine_protocol::{
+    KernelAddressRequest, MemoryMapRequest, Request, SMPRequest, StackSizeRequest,
+};
+
 #[used]
 static MEMORY_MAP: Request<MemoryMapRequest> = MemoryMapRequest::default().into();
 
@@ -131,8 +134,6 @@ static SMP_REQUEST: Request<SMPRequest> = SMPRequest {
 #[global_allocator]
 static ALLOCATOR: HeapAllocator = HeapAllocator::new();
 
-extern crate alloc;
-
 /// The kernel entrypoint
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -145,6 +146,8 @@ fn kentry() -> ! {
     crate::logger::LOGGER.init();
     info!("Logging enabled");
     trace!("{:?}", *MEMORY_MAP);
+
+    assert_eq!(core::mem::size_of::<usize>(), core::mem::size_of::<<<crate::arch::PlatformType as crate::traits::Platform>::RawAddress as crate::traits::RawAddress>::UnderlyingType>());
 
     let mmap_res = unsafe {
         MEMORY_MAP
@@ -170,7 +173,7 @@ fn kentry() -> ! {
 
     debug!("Kernel Addresses: {:#?}", addrs);
 
-    unsafe { PHYSICAL_ALLOCATOR.init(mmap).unwrap() };
+    PlatformManager.init(mmap).unwrap();
 
     info!("Initialized page allocator");
 

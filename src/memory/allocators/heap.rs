@@ -1,9 +1,10 @@
 use crate::{
+    arch::{PlatformManager, PlatformType},
+    collections::DirectingAllocator,
     memory::{errors::AllocatorError, utilities::align},
     sync::RwLock,
+    traits::Platform,
 };
-
-use crate::collections::GrowableSlice;
 
 extern crate alloc;
 use alloc::alloc::{GlobalAlloc, Layout};
@@ -47,13 +48,15 @@ impl core::cmp::Ord for FreeRegion {
 }
 
 /// The Lotus OS Heap Allocator
-pub struct HeapAllocator<'a> {
-    storage: RwLock<GrowableSlice<'a, FreeRegion>>,
+pub struct HeapAllocator {
+    storage: RwLock<
+        Vec<FreeRegion, DirectingAllocator<'static, <PlatformType as Platform>::PhysicalAllocator>>,
+    >,
 }
 
 static DIV: &str = "================================================================";
 
-impl<'a> HeapAllocator<'a> {
+impl HeapAllocator {
     /// Create a new heap allocator
     ///
     /// # Example
@@ -63,8 +66,14 @@ impl<'a> HeapAllocator<'a> {
     /// unsafe { heap.init(heap_start, heap_size) }
     /// ```
     pub const fn new() -> Self {
+        let _: Option<alloc::alloc::Global> = None;
         HeapAllocator {
-            storage: RwLock::new(GrowableSlice::new()),
+            storage: RwLock::new(Vec::<
+                FreeRegion,
+                DirectingAllocator<'static, <PlatformType as Platform>::PhysicalAllocator>,
+            >::new_in(
+                DirectingAllocator::from_allocator_ref(PlatformManager.get_physical_allocator()),
+            )),
         }
     }
 
@@ -73,16 +82,18 @@ impl<'a> HeapAllocator<'a> {
     /// # Arguments
     /// * `a` - The first item
     /// * `b` - The second item
-    fn sort_ascending_base(a: &Option<FreeRegion>, b: &Option<FreeRegion>) -> Ordering {
-        if a.is_none() && b.is_none() {
-            Ordering::Equal
-        } else if a.is_none() && b.is_some() {
-            Ordering::Greater
-        } else if b.is_none() && a.is_some() {
-            Ordering::Less
-        } else {
-            a.as_ref().unwrap().start.cmp(&b.as_ref().unwrap().start)
+    fn sort_ascending_base(a: &FreeRegion, b: &FreeRegion) -> Ordering {
+        a.start.cmp(&b.start)
+    }
+
+    fn try_internal_push(&self, item: FreeRegion) -> Result<(), AllocatorError> {
+        let vec = self.storage.write();
+        match vec.try_reserve(1) {
+            Ok(_) => {}
+            Err(_) => return Err(AllocatorError::OutOfMemory),
         }
+        vec.push(item);
+        Ok(())
     }
 
     /// Initialize the heap allocator
@@ -97,10 +108,6 @@ impl<'a> HeapAllocator<'a> {
     /// # Safety
     /// The provided region must not overlap with any important data
     pub unsafe fn init(&self, start: *mut u8, size: usize) -> Result<(), AllocatorError> {
-        {
-            let mut storage = self.storage.write();
-            storage.init()?;
-        }
         self.add_free_region(start, size)?;
         Ok(())
     }
@@ -116,9 +123,9 @@ impl<'a> HeapAllocator<'a> {
     pub unsafe fn add_free_region(&self, addr: *mut u8, size: usize) -> Result<(), AllocatorError> {
         self.join_nearby();
         trace!("Sorted free regions");
-        let items = &mut *self.storage.write();
+        let items = self.storage.write();
         trace!("Pushing new free region");
-        items.push(FreeRegion::new(addr, size))
+        self.try_internal_push(FreeRegion::new(addr, size))
     }
 
     /// Find a region with the specified size and alignment
@@ -137,13 +144,7 @@ impl<'a> HeapAllocator<'a> {
         alignment: usize,
     ) -> Option<(*mut FreeRegion, usize, usize)> {
         let items = self.storage.read();
-        for (index, item) in items
-            .storage
-            .iter()
-            .filter(|i| i.is_some())
-            .map(|i| i.as_ref().unwrap())
-            .enumerate()
-        {
+        for (index, item) in items.iter().enumerate() {
             if let Ok(alloc_start) = self.check_region_allocation(item, size, alignment) {
                 return Some((
                     item as *const FreeRegion as *mut FreeRegion,
@@ -190,24 +191,24 @@ impl<'a> HeapAllocator<'a> {
     fn join_nearby(&self) {
         let mut items = self.storage.write();
         loop {
-            items.sort(Self::sort_ascending_base);
+            items.sort_by(Self::sort_ascending_base);
 
             let mut tbreak = true;
-            for index in 0..items.present() {
-                let b = match items.storage.get(index + 1) {
-                    Some(Some(v)) => v.clone(),
+            for index in 0..items.len() {
+                let b = match items.get(index + 1) {
+                    Some(v) => v.clone(),
                     _ => continue,
                 };
 
-                let a = match items.storage.get_mut(index) {
-                    Some(Some(v)) => v,
+                let a = match items.get_mut(index) {
+                    Some(v) => v,
                     _ => continue,
                 };
 
                 if unsafe { a.start.add(a.size) } == b.start {
                     let n_size = b.size;
                     a.size += n_size;
-                    let _ = items.pop(index + 1);
+                    let _ = items.drain(index + 1..=index + 1);
 
                     tbreak = false;
                 }
@@ -220,17 +221,12 @@ impl<'a> HeapAllocator<'a> {
     }
 }
 
-impl<'a> core::fmt::Display for HeapAllocator<'a> {
+impl core::fmt::Display for HeapAllocator {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         writeln!(f, "{}", DIV)?;
 
         let items = self.storage.read();
-        for item in items
-            .storage
-            .iter()
-            .filter(|i| i.is_some())
-            .map(|i| i.as_ref().unwrap())
-        {
+        for item in items.iter() {
             writeln!(f, "Allocator Node {:#?}", item)?;
         }
 
@@ -238,7 +234,7 @@ impl<'a> core::fmt::Display for HeapAllocator<'a> {
     }
 }
 
-unsafe impl<'a> GlobalAlloc for HeapAllocator<'a> {
+unsafe impl GlobalAlloc for HeapAllocator {
     /// I really don't want to explain this, buttttttttttttttttttttt
     /// It
     /// * Aligns the layout
@@ -266,8 +262,8 @@ unsafe impl<'a> GlobalAlloc for HeapAllocator<'a> {
 
             {
                 let mut storage = self.storage.write();
-                let _ = storage.pop(region_idx);
-                storage.sort(Self::sort_ascending_base);
+                let _ = storage.drain(region_idx..=region_idx);
+                storage.sort_by(Self::sort_ascending_base);
             }
 
             alloc_start as *mut u8

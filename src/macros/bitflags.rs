@@ -26,6 +26,7 @@ impl_bits! {
     u8, i8, u16, i16, u32, i32, u64, i64, u128, i128
 }
 
+/*
 pub trait BitFlags {
     type BitType: Bits;
 
@@ -71,33 +72,37 @@ pub trait BitFlags {
     /// Sets the given flag in the bitflag struct to the provided value
     fn set(&mut self, other: Self, value: bool);
 }
+*/
 
 macro_rules! bitflags {
     (
-        $(#[$outer_meta:meta])*
-        $visibility:vis struct $bfs:ident: $T:ty {
-            $(
-                $(#[$inner_meta:ident $($args:tt)*])*
-                const $Flag:ident = $val:expr;
-            )*
-        }
-    ) => {
-        $(#[$outer_meta])*
-        #[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-        #[repr(transparent)]
-        /// The bitstruct
-        $visibility struct $bfs {
-            bits: $T,
-        }
-
-        $crate::macros::bitflags::impl_flags_bitflags! {
-            $bfs: $T {
+        $(
+            $(#[$outer_meta:meta])*
+            $visibility:vis struct $bfs:ident: $T:ty {
                 $(
-                    $(#[$inner_meta $($args)*])*
-                    $Flag = $val;
+                    $(#[$inner_meta:ident $($args:tt)*])*
+                    const $Flag:ident = $val:expr;
                 )*
             }
-        }
+        )*
+    ) => {
+        $(
+            $(#[$outer_meta])*
+            #[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
+            #[repr(transparent)]
+            $visibility struct $bfs {
+                bits: $T,
+            }
+
+            $crate::macros::bitflags::impl_flags_bitflags! {
+                $bfs: $T {
+                    $(
+                        $(#[$inner_meta $($args)*])*
+                        $Flag = $val;
+                    )*
+                }
+            }
+        )*
     };
 }
 
@@ -285,7 +290,7 @@ macro_rules! impl_flags_bitflags {
 
 
         }
-        impl ::core::ops::BitOr for $bfs {
+        impl const ::core::ops::BitOr for $bfs {
             type Output = Self;
 
             #[inline]
@@ -294,14 +299,14 @@ macro_rules! impl_flags_bitflags {
             }
         }
 
-        impl ::core::ops::BitOrAssign for $bfs {
+        impl const ::core::ops::BitOrAssign for $bfs {
             #[inline]
             fn bitor_assign(&mut self, other: Self) {
                 self.bits |= other.bits;
             }
         }
 
-        impl ::core::ops::BitXor for $bfs {
+        impl const ::core::ops::BitXor for $bfs {
             type Output = Self;
 
             #[inline]
@@ -310,14 +315,14 @@ macro_rules! impl_flags_bitflags {
             }
         }
 
-        impl ::core::ops::BitXorAssign for $bfs {
+        impl const ::core::ops::BitXorAssign for $bfs {
             #[inline]
             fn bitxor_assign(&mut self, other: Self) {
                 self.bits ^= other.bits;
             }
         }
 
-        impl ::core::ops::BitAnd for $bfs {
+        impl const ::core::ops::BitAnd for $bfs {
             type Output = Self;
 
             #[inline]
@@ -326,14 +331,14 @@ macro_rules! impl_flags_bitflags {
             }
         }
 
-        impl ::core::ops::BitAndAssign for $bfs {
+        impl const ::core::ops::BitAndAssign for $bfs {
             #[inline]
             fn bitand_assign(&mut self, other: Self) {
                 self.bits &= other.bits;
             }
         }
 
-        impl ::core::ops::Sub for $bfs {
+        impl const ::core::ops::Sub for $bfs {
             type Output = Self;
 
             #[inline]
@@ -342,14 +347,14 @@ macro_rules! impl_flags_bitflags {
             }
         }
 
-        impl ::core::ops::SubAssign for $bfs {
+        impl const ::core::ops::SubAssign for $bfs {
             #[inline]
             fn sub_assign(&mut self, other: Self) {
                 self.bits &= !other.bits;
             }
         }
 
-        impl ::core::ops::Not for $bfs {
+        impl const ::core::ops::Not for $bfs {
             type Output = Self;
 
             #[inline]
@@ -376,6 +381,7 @@ macro_rules! impl_flags_bitflags {
             }
         }
 
+        /*
         impl $crate::macros::bitflags::BitFlags for $bfs {
             type BitType = $T;
 
@@ -431,6 +437,7 @@ macro_rules! impl_flags_bitflags {
                 $bfs::set(self, other, val)
             }
         }
+        */
     };
 }
 

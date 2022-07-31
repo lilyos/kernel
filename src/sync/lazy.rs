@@ -5,6 +5,18 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+/// A type for lazy initialization
+///
+/// # Example
+/// ```rust
+/// fn initialize_the_number() -> u32 {
+///     834234 << 3
+/// }
+///
+/// let lazy_u32 = Lazy::new(initialize_the_number);
+///
+/// assert_eq!(*lazy_u32, 834234 << 3)
+/// ```
 pub struct Lazy<T> {
     init: AtomicBool,
     func: fn() -> T,
@@ -53,14 +65,33 @@ impl<T> Deref for Lazy<T> {
 
 unsafe impl<T> Sync for Lazy<T> where T: Sync {}
 
+/// Create a lazy static
+///
+/// # Example
+/// ```rust
+/// lazy_static! {
+///     pub lazy static OddTo100: Vec<i32> = {
+///         let mut vec = Vec::new();
+///         vec.extend(0..=100.filter(|i| i % 2 != 0));
+///         vec
+///     };
+/// }
+/// ```
 macro_rules! lazy_static {
-    ($(#[$outer_meta:meta])* $visib:vis lazy static $ident:ident: $ty:ty = $func:block;) => {
-        fn create_static_item() -> $ty {
-            $func
-        }
+    (
+        $(
+            $(#[$outer_meta:meta])*
+            $visib:vis lazy static $ident:ident: $ty:ty = $func:block;
+        )*
+    ) => {
+        $(
+            fn create_static_item() -> $ty {
+                $func
+            }
 
-        $(#[$outer_meta])*
-        $visib static $ident: $crate::sync::Lazy<$ty> = $crate::sync::Lazy::new(create_static_item);
+            $(#[$outer_meta])*
+            $visib static $ident: $crate::sync::Lazy<$ty> = $crate::sync::Lazy::new(create_static_item);
+        )*
     };
 }
 

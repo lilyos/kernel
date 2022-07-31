@@ -1,3 +1,5 @@
+use crate::errors::GenericError;
+
 /// Errors that can be returned by these allocators.
 #[derive(Debug)]
 pub enum AllocatorError {
@@ -20,17 +22,6 @@ pub enum AllocatorError {
     DoubleFree,
     /// If the allocator or any of its children haven't been initialized
     Uninitialized,
-}
-
-#[derive(Debug)]
-/// Errors that occur when trying to convert an address between types
-pub enum AddressError {
-    /// The address wasn't aligned
-    AddressNotAligned,
-    /// The address wasn't canonical
-    AddressNonCanonical,
-    /// The address was greater than the underlying type
-    ConversionError,
-    /// An unspecified error occurred
-    Other,
+    /// Generic Error
+    Generic(GenericError),
 }

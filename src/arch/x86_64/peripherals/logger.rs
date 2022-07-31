@@ -1,5 +1,7 @@
 use log::{error, Level, LevelFilter, Log, Metadata, Record};
 
+use crate::traits::Init;
+
 /// `Log` implementation for serial
 pub struct SerialLogger;
 
@@ -53,5 +55,15 @@ impl SerialLogger {
             Ok(_) => log::set_max_level(Self::LEVEL_FILTER),
             Err(e) => panic!("FAILED TO INITIALIZE LOGGER, {e}"),
         }
+    }
+}
+
+impl Init for SerialLogger {
+    type Error = core::convert::Infallible;
+
+    type Input = ();
+
+    fn init(&self, init_val: Self::Input) -> Result<(), Self::Error> {
+        Ok(self.init())
     }
 }

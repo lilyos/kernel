@@ -20,7 +20,7 @@ macro_rules! invoke_handler {
 pub extern "x86-interrupt" fn divide_by_zero(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::DivideByZero(DivideByZeroContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         error_code: None,
     }))
 }
@@ -29,7 +29,7 @@ pub extern "x86-interrupt" fn divide_by_zero(frame: &mut ExceptionStackFrame) {
 pub extern "x86-interrupt" fn debug(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::DebugBreakpoint(DebugBreakpointContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         error_code: None,
     }))
 }
@@ -38,7 +38,7 @@ pub extern "x86-interrupt" fn debug(frame: &mut ExceptionStackFrame) {
 pub extern "x86-interrupt" fn breakpoint(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::DebugBreakpoint(DebugBreakpointContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         error_code: None,
     }))
 }
@@ -47,7 +47,7 @@ pub extern "x86-interrupt" fn breakpoint(frame: &mut ExceptionStackFrame) {
 pub extern "x86-interrupt" fn general_protection(frame: &mut ExceptionStackFrame, error_code: u64) {
     invoke_handler!(InterruptType::Generic(GenericContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         interrupt_number: 13,
         error_code: Some(error_code),
     }))
@@ -57,7 +57,7 @@ pub extern "x86-interrupt" fn general_protection(frame: &mut ExceptionStackFrame
 pub extern "x86-interrupt" fn overflow(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::Generic(GenericContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         interrupt_number: 4,
         error_code: None,
     }))
@@ -67,7 +67,7 @@ pub extern "x86-interrupt" fn overflow(frame: &mut ExceptionStackFrame) {
 pub extern "x86-interrupt" fn bound_range_exceeded(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::Generic(GenericContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         interrupt_number: 5,
         error_code: None,
     }))
@@ -78,7 +78,7 @@ pub extern "x86-interrupt" fn invalid_opcode(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::InvalidInstruction(
         InvalidInstructionContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: None,
         }
     ))
@@ -109,7 +109,7 @@ bitflags! {
 pub extern "x86-interrupt" fn page_fault(frame: &mut ExceptionStackFrame, error_code: u64) {
     invoke_handler!(InterruptType::IllegalAccess(IllegalAccessContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         page_unmapped: PageFaultErrorCode::from_bits_truncate(error_code)
             .contains(PageFaultErrorCode::PRESENT),
         error_code: Some(error_code),
@@ -120,7 +120,7 @@ pub extern "x86-interrupt" fn page_fault(frame: &mut ExceptionStackFrame, error_
 pub extern "x86-interrupt" fn alignment(frame: &mut ExceptionStackFrame, error_code: u64) {
     invoke_handler!(InterruptType::CheckFailed(CheckFailedContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         message: "FAILED ALIGNMENT CHECK",
         error_code: Some(error_code),
     }))
@@ -130,7 +130,7 @@ pub extern "x86-interrupt" fn alignment(frame: &mut ExceptionStackFrame, error_c
 pub extern "x86-interrupt" fn machine(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::CheckFailed(CheckFailedContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         message: "FAILED MACHINE CHECK",
         error_code: None,
     }))
@@ -140,7 +140,7 @@ pub extern "x86-interrupt" fn machine(frame: &mut ExceptionStackFrame) {
 pub extern "x86-interrupt" fn device_not_available(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::CheckFailed(CheckFailedContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         message: "DEVICE NOT AVAILABLE",
         error_code: None,
     }))
@@ -150,7 +150,7 @@ pub extern "x86-interrupt" fn device_not_available(frame: &mut ExceptionStackFra
 pub extern "x86-interrupt" fn invalid_tss(frame: &mut ExceptionStackFrame, error_code: u64) {
     invoke_handler!(InterruptType::CheckFailed(CheckFailedContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         message: "FAILED TO VERIFY TSS",
         error_code: Some(error_code),
     }))
@@ -163,7 +163,7 @@ pub extern "x86-interrupt" fn segment_not_present(
 ) {
     invoke_handler!(InterruptType::CheckFailed(CheckFailedContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         message: "FAILED TO SET SEGMENT",
         error_code: Some(error_code),
     }))
@@ -176,7 +176,7 @@ pub extern "x86-interrupt" fn stack_segment_fault(
 ) {
     invoke_handler!(InterruptType::CheckFailed(CheckFailedContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         message: "FAILED TO SET STACK SEGMENT",
         error_code: Some(error_code),
     }))
@@ -186,7 +186,7 @@ pub extern "x86-interrupt" fn stack_segment_fault(
 pub extern "x86-interrupt" fn simd_floating_point(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::SIMDError(SIMDErrorContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         error_code: None,
     }))
 }
@@ -195,7 +195,7 @@ pub extern "x86-interrupt" fn simd_floating_point(frame: &mut ExceptionStackFram
 pub extern "x86-interrupt" fn floating_point(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::FloatingPoint(FloatingPointContext {
         pid: 0,
-        iptr: frame.instruction_pointer,
+        iptr: frame.instruction_pointer.try_into().unwrap(),
         error_code: None,
     }))
 }
@@ -205,7 +205,7 @@ pub extern "x86-interrupt" fn virtualization(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::VirtualizationError(
         VirtualizationErrorContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: None,
         }
     ))
@@ -216,7 +216,7 @@ pub extern "x86-interrupt" fn vmm_communication(frame: &mut ExceptionStackFrame,
     invoke_handler!(InterruptType::VirtualizationError(
         VirtualizationErrorContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: Some(error_code),
         }
     ))
@@ -227,7 +227,7 @@ pub extern "x86-interrupt" fn hypervisor_injection(frame: &mut ExceptionStackFra
     invoke_handler!(InterruptType::HypervisorInterference(
         HypervisorInterferenceContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: None,
         }
     ))
@@ -238,7 +238,7 @@ pub extern "x86-interrupt" fn control_protection(frame: &mut ExceptionStackFrame
     invoke_handler!(InterruptType::ControlProtectionViolation(
         ControlProtectionContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: Some(error_code),
         }
     ))
@@ -249,7 +249,7 @@ pub extern "x86-interrupt" fn security_violation(frame: &mut ExceptionStackFrame
     invoke_handler!(InterruptType::ControlProtectionViolation(
         ControlProtectionContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: Some(error_code),
         }
     ))
@@ -260,7 +260,7 @@ pub extern "x86-interrupt" fn nmi(frame: &mut ExceptionStackFrame) {
     invoke_handler!(InterruptType::NonMaskableInterrupt(
         NonMaskableInterruptContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: None,
         }
     ))
@@ -271,7 +271,7 @@ pub extern "x86-interrupt" fn double_fault(frame: &mut ExceptionStackFrame, erro
     invoke_handler!(InterruptType::NonMaskableInterrupt(
         NonMaskableInterruptContext {
             pid: 0,
-            iptr: frame.instruction_pointer,
+            iptr: frame.instruction_pointer.try_into().unwrap(),
             error_code: Some(error_code),
         }
     ))

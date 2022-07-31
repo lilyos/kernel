@@ -1,12 +1,43 @@
-use core::{fmt::Display, marker::PhantomData, mem::ManuallyDrop};
+use core::{
+    alloc::{AllocError, Allocator, Layout},
+    fmt::Display,
+    marker::PhantomData,
+    ptr::NonNull,
+};
 
 use crate::{
-    arch::PHYSICAL_ALLOCATOR,
+    arch::PlatformManager,
+    collections::DirectingAllocator,
     memory::addresses::{Address, AlignedAddress, Physical, Virtual},
-    traits::PhysicalMemoryAllocator,
+    traits::{Platform, RawAddress},
 };
 
 use super::addresses::AddressWithFlags;
+
+static PHYSICAL_ALLOCATOR: &<crate::arch::PlatformType as Platform>::PhysicalAllocator =
+    crate::arch::PlatformManager.get_physical_allocator();
+
+const FRAME_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(4096, 4096) };
+
+pub fn allocate_frame<A: Allocator>(allocator: A) -> Result<NonNull<[u8]>, AllocError> {
+    allocator.allocate(FRAME_LAYOUT)
+}
+
+pub fn allocate_frame_platform_alloc() -> Result<NonNull<[u8]>, AllocError> {
+    allocate_frame(DirectingAllocator::from_allocator_ref(
+        PlatformManager.get_physical_allocator(),
+    ))
+}
+pub fn deallocate_frame<A: Allocator>(allocator: A, frame: NonNull<u8>) {
+    unsafe { allocator.deallocate(frame, FRAME_LAYOUT) }
+}
+
+pub fn deallocate_frame_platform_alloc(frame: NonNull<u8>) {
+    deallocate_frame(
+        DirectingAllocator::from_allocator_ref(PlatformManager.get_physical_allocator()),
+        frame,
+    )
+}
 
 #[repr(transparent)]
 #[derive(Clone)]
@@ -29,7 +60,7 @@ impl<L> PageTableEntry<L> {
         let mut tmp = Self(
             unsafe {
                 AddressWithFlags::from_bits_unchecked(
-                    address.get_flags().bits() as u64 | extra_flags as u64,
+                    address.inner().into_raw() | extra_flags as u64,
                 )
             },
             PhantomData,
@@ -142,19 +173,20 @@ impl TableLevel4 {
     }
 
     /// Get a mutable reference to the page 3 table at the index, allocating a new frame if it's not present
-    pub fn sub_table_create(&mut self, index: usize) -> &mut TableLevel3 {
+    pub fn sub_table_create(&mut self, index: usize) -> Result<&mut TableLevel3, AllocError> {
         let entry = &mut self.data[index];
         if entry.is_unused() {
-            let guard = ManuallyDrop::new(PHYSICAL_ALLOCATOR.alloc(4).unwrap());
+            let guard = allocate_frame_platform_alloc()?;
             *entry = PageTableEntry::new(
-                Address::<Virtual>::new(guard.address_mut() as *const ())
+                Address::<Virtual>::new(guard.as_ptr() as *const ())
                     .unwrap()
                     .try_into()
                     .unwrap(),
                 0,
             );
         }
-        entry.get_item_mut().unwrap()
+
+        Ok(entry.get_item_mut().unwrap())
     }
 }
 
@@ -183,19 +215,19 @@ impl TableLevel3 {
     }
 
     /// Get a mutable reference to the page 2 table at the index, allocating a new frame if it's not present
-    pub fn sub_table_create(&mut self, index: usize) -> &mut TableLevel2 {
+    pub fn sub_table_create(&mut self, index: usize) -> Result<&mut TableLevel2, AllocError> {
         let entry = &mut self.data[index];
         if entry.is_unused() {
-            let guard = ManuallyDrop::new(PHYSICAL_ALLOCATOR.alloc(4).unwrap());
+            let guard = allocate_frame_platform_alloc()?;
             *entry = PageTableEntry::new(
-                Address::<Virtual>::new(guard.address_mut() as *const ())
+                Address::<Virtual>::new(guard.as_ptr() as *const ())
                     .unwrap()
                     .try_into()
                     .unwrap(),
                 0,
             );
         }
-        entry.get_item_mut().unwrap()
+        Ok(entry.get_item_mut().unwrap())
     }
 }
 
@@ -224,19 +256,19 @@ impl TableLevel2 {
     }
 
     /// Get a mutable reference to the page 1 table at the index, allocating a new frame if it's not present
-    pub fn sub_table_create(&mut self, index: usize) -> &mut TableLevel1 {
+    pub fn sub_table_create(&mut self, index: usize) -> Result<&mut TableLevel1, AllocError> {
         let entry = &mut self.data[index];
         if entry.is_unused() {
-            let guard = ManuallyDrop::new(PHYSICAL_ALLOCATOR.alloc(4).unwrap());
+            let guard = allocate_frame_platform_alloc()?;
             *entry = PageTableEntry::new(
-                Address::<Virtual>::new(guard.address_mut() as *const ())
+                Address::<Virtual>::new(guard.as_ptr() as *const ())
                     .unwrap()
                     .try_into()
                     .unwrap(),
                 0,
             );
         }
-        entry.get_item_mut().unwrap()
+        Ok(entry.get_item_mut().unwrap())
     }
 }
 
@@ -257,6 +289,7 @@ impl Display for TableLevel1 {
         {
             write!(f, "{:?}", item)?;
         }
+
         Ok(())
     }
 }
@@ -269,13 +302,18 @@ impl TableLevel1 {
     }
 
     /// Get a mutable reference to the frame at the index, allocating a new frame if it's not present
-    pub fn frame_create(&mut self, index: usize) -> &mut AlignedAddress<Physical> {
+    pub fn frame_create(
+        &mut self,
+        index: usize,
+    ) -> Result<&mut AlignedAddress<Physical>, AllocError> {
         let entry = self.data[index].clone();
         if !entry.get_flags().contains(AddressWithFlags::PRESENT) {
-            let guard = ManuallyDrop::new(PHYSICAL_ALLOCATOR.alloc(4).unwrap());
-            self.data[index] = PageTableEntry::new(guard.address_mut().try_into().unwrap(), 0);
+            let guard = allocate_frame_platform_alloc()?;
+            self.data[index] =
+                PageTableEntry::new((guard.as_ptr() as *mut u8 as usize).try_into().unwrap(), 0);
         }
-        self.data[index].get_item_mut().unwrap()
+
+        Ok(self.data[index].get_item_mut().unwrap())
     }
 
     /// Set the frame at the specified index to the provided one
@@ -292,7 +330,7 @@ impl TableLevel1 {
         src: AlignedAddress<Physical>,
     ) -> &mut AlignedAddress<Physical> {
         self.data[index] = PageTableEntry::new(
-            Address::<Physical>::new(src.get_address())
+            Address::<Physical>::new(src.into())
                 .unwrap()
                 .try_into()
                 .unwrap(),
