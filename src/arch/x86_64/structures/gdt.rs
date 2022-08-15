@@ -57,51 +57,14 @@ pub static mut GDT: [u64; 9] = [
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
-/// Segment types for 32 bit mode
-pub enum SegmentType32Bit {
-    /// 16 bit Tss (Available)
-    Tss16BitAvailable = 0x1,
-    /// Local Descriptor Table
-    Ldt = 0x2,
-    /// 16 bit Tss (Busy)
-    Tss16BitBusy = 0x3,
-    /// 32 bit Tss (Available)
-    Tss32BitAvailable = 0x9,
-    /// 32 bit Tss (Busy)
-    Tss32BitBusy = 0xB,
-}
-
-#[derive(Clone, Copy, Debug)]
-#[repr(u8)]
 /// Segment types for 64 bit mode
-pub enum SegmentType64Bit {
+pub enum SegmentType {
     /// Local Descriptor Table
     Ldt = 0x2,
     /// 64 bit Tss (Available)
     Tss64BitAvailable = 0x9,
     /// 64 bit Tss (Busy)
     Tss64BitBusy = 0xB,
-}
-
-/// Union of segment types
-pub union SegmentType {
-    /// Protected Mode Segment Type
-    pub protected: SegmentType32Bit,
-    /// Long Mode Segment Type
-    pub long: SegmentType64Bit,
-    untyped: u8,
-}
-
-impl Debug for SegmentType {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        unsafe {
-            if is_64_bit_mode() {
-                <SegmentType64Bit as Debug>::fmt(&self.long, f)
-            } else {
-                <SegmentType32Bit as Debug>::fmt(&self.protected, f)
-            }
-        }
-    }
 }
 
 bitflags! {
@@ -208,7 +171,7 @@ impl SystemSegmentAccessByte {
 
     /// Set segment type
     pub const fn segment_type(mut self, dtype: SegmentType) -> Self {
-        self.bits |= (unsafe { dtype.untyped } & 0b1_1111);
+        self.bits |= (dtype as u8 & 0b1_1111);
         self
     }
 

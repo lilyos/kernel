@@ -32,7 +32,7 @@ impl Log for PlatformLogger {
             },
             record.level(),
             record.args()
-        );
+        ).unwrap();
     }
 
     fn flush(&self) {}
@@ -52,6 +52,7 @@ impl PlatformLogger {
     #[cfg(not(debug_assertions))]
     const LEVEL_FILTER: LevelFilter = LevelFilter::Info;
 
+    /// Initialize the logger
     pub fn init(&'static self) -> Result<(), SetLoggerError> {
         log::set_logger(self)?;
         log::set_max_level(Self::LEVEL_FILTER);

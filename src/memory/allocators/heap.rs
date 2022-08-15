@@ -1,5 +1,5 @@
 use crate::{
-    errors::{GenericError, HeapAllocatorError},
+    errors::{GenericError, MemoryManagerError, AllocatorErrorTyped},
     get_memory_manager,
     memory::{
         addresses::{Address, AlignedAddress, Virtual},
@@ -16,6 +16,21 @@ use log::trace;
 use core::{cmp::Ordering, ptr, sync::atomic::AtomicUsize};
 
 use super::NeverAllocator;
+
+/// Internal heap allocator error
+#[derive(Clone, Copy, Debug)]
+pub enum InternalHeapAllocatorError {
+    /// A memory manager error occurred
+    MemoryManager(MemoryManagerError),
+    /// No large enough region was found
+    NoLargeEnoughRegion,
+    /// The region is too small for the requested size.
+    RegionTooSmall,
+    /// The allocation has failed because there is no free memory.
+    OutOfMemory,
+    /// The deallocation has failed because it was already freed.
+    DoubleFree,
+}
 
 /// A struct representing a free region in the heap allocator
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +75,8 @@ pub struct HeapAllocator {
 
 static DIV: &str = "================================================================";
 
+type HeapAllocatorError = AllocatorErrorTyped<InternalHeapAllocatorError>;
+
 impl HeapAllocator {
     /// Create a new heap allocator
     ///
@@ -100,7 +117,7 @@ impl HeapAllocator {
                     .allocate_and_map(
                         get_memory_manager()
                             .get_current_table()
-                            .map_err(|e| HeapAllocatorError::MemoryManager(e))?,
+                            .map_err(|e| HeapAllocatorError::InternalError(InternalHeapAllocatorError::MemoryManager(e)))?,
                         (*crate::SAFE_UPPER_HALF_RANGE).clone(),
                         MemoryFlags::CACHABLE
                             | MemoryFlags::KERNEL_ONLY
@@ -108,7 +125,7 @@ impl HeapAllocator {
                             | MemoryFlags::WRITABLE,
                         Self::layout_for_region_array(new_size),
                     )
-                    .map_err(|e| HeapAllocatorError::MemoryManager(e))?
+                    .map_err(|e| HeapAllocatorError::InternalError(InternalHeapAllocatorError::MemoryManager(e)))?
             };
 
             let mut new_vec = unsafe {
@@ -129,11 +146,11 @@ impl HeapAllocator {
                     get_memory_manager().deallocate_and_unmap(
                         get_memory_manager()
                             .get_current_table()
-                            .map_err(|e| HeapAllocatorError::MemoryManager(e))?,
+                            .map_err(|e| HeapAllocatorError::InternalError(InternalHeapAllocatorError::MemoryManager(e)))?,
                         AlignedAddress::<Virtual>::new(old_data.into_raw_parts().0 as *const ())
                             .map_err(|e| HeapAllocatorError::Address(e))?,
                         Self::layout_for_region_array(original_size),
-                    )
+                    ).map_err(|e| HeapAllocatorError::InternalError(InternalHeapAllocatorError::MemoryManager(e)))?
                 };
             }
         }
@@ -168,7 +185,7 @@ impl HeapAllocator {
             .allocate_and_map(
                 get_memory_manager()
                     .get_current_table()
-                    .map_err(|e| HeapAllocatorError::MemoryManager(e))?,
+                    .map_err(|e| HeapAllocatorError::InternalError(InternalHeapAllocatorError::MemoryManager(e)))?,
                 (*crate::SAFE_UPPER_HALF_RANGE).clone(),
                 MemoryFlags::CACHABLE
                     | MemoryFlags::KERNEL_ONLY
@@ -176,7 +193,7 @@ impl HeapAllocator {
                     | MemoryFlags::WRITABLE,
                 Self::layout_for_region_array(32),
             )
-            .map_err(|e| HeapAllocatorError::MemoryManager(e))?;
+            .map_err(|e| HeapAllocatorError::InternalError(InternalHeapAllocatorError::MemoryManager(e)))?;
 
         {
             let mut lock = self.storage.write();
@@ -263,7 +280,7 @@ impl HeapAllocator {
             ))?;
 
         if alloc_end > region.end() as usize {
-            return Err(HeapAllocatorError::RegionTooSmall);
+            return Err(HeapAllocatorError::InternalError(InternalHeapAllocatorError::RegionTooSmall));
         }
 
         Ok(alloc_start)

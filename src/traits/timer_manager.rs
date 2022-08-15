@@ -1,14 +1,15 @@
 use crate::errors::TimerManagerError;
 
+/// Trait for managing timers
 pub unsafe trait TimerManager {
-    type Error = TimerManagerError;
-
+    /// Set a timer
     fn set_timer(
         &self,
-        timer_id: u64,
-        interval: f64,
-        interrupt_num: u64,
-    ) -> Result<(), Self::Error>;
+        _: u64,
+        _: f64,
+        _: u64,
+    ) -> Result<(), TimerManagerError>;
 
-    fn clear_timer(&self, timer_id: u64) -> Result<(), Self::Error>;
+    /// Clear a timer
+    fn clear_timer(&self, _: u64) -> Result<(), TimerManagerError>;
 }

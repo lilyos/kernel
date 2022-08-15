@@ -110,4 +110,5 @@ impl Init for X86_64 {
     }
 }
 
+/// [Platform] implementation for the x86_64 architecture
 pub static IMPLEMENTATION: X86_64 = X86_64::new();

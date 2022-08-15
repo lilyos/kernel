@@ -20,6 +20,8 @@ bitflags! {
     }
 }
 
+// TODO: Determine need for this
+#[allow(dead_code)]
 impl CR0 {
     /// Get the CR0 register
     pub fn get() -> Self {
@@ -34,9 +36,12 @@ impl CR0 {
     }
 }
 
+// TODO: Determine need for this
+#[allow(dead_code)]
 /// Struct representing the RSP register
 pub struct RSP(pub *mut u8);
 
+#[allow(dead_code)]
 impl RSP {
     /// Get the value of the register
     pub fn get() -> Self {

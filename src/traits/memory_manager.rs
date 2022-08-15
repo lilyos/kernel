@@ -14,6 +14,7 @@ use crate::{
 use super::PhysicalAllocator;
 
 bitflags! {
+    /// Memory flags that can be used when mapping something
     pub struct MemoryFlags: u64 {
         const KERNEL_ONLY = 1 << 0;
         const READABLE = 1 << 1;
@@ -119,7 +120,7 @@ pub unsafe trait MemoryManager {
     ) -> Result<AlignedAddress<Virtual>, MemoryManagerError> {
         let p_addr = PHYSICAL_ALLOCATOR
             .allocate(layout)
-            .map_err(|e| MemoryManagerError::PhysicalAllocator(e))?;
+            .map_err(|e| MemoryManagerError::Allocator(e))?;
 
         let pages = align(layout.size(), 4096);
 

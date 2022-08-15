@@ -190,6 +190,7 @@ static ALLOCATOR: NeverAllocator = NeverAllocator;
 /// The Physical Allocator
 static PHYSICAL_ALLOCATOR: PageAllocator = PageAllocator::new();
 
+/// Get the Memory Manager
 pub fn get_memory_manager() -> &'static <arch::PlatformType as Platform>::MemoryManager {
     PLATFORM_MANAGER.get_memory_manager()
 }

@@ -3,5 +3,5 @@ build-std = ["core", "compiler_builtins", "alloc"]
 build-std-features = ["compiler-builtins-mem"]
 
 [build]
-target = "./src/misc/x86_64-unknown-none.json"
+target = "x86_64-unknown-none"
 rustflags = ["-Clink-args=-pie", "-Clink-args=-T./src/misc/x86_64-unknown-none.ld", "-Zmacro-backtrace"]

@@ -1,7 +1,7 @@
 use core::{alloc::Layout, fmt::Display, marker::PhantomData};
 
 use crate::{
-    errors::{MemoryManagerError, PhysicalAllocatorError},
+    errors::{MemoryManagerError, AllocatorError},
     get_memory_manager,
     memory::addresses::{AlignedAddress, Physical},
     traits::{MemoryFlags, MemoryManager, PhysicalAllocator, PlatformAddress},
@@ -11,20 +11,26 @@ use super::addresses::AddressWithFlags;
 
 const FRAME_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(4096, 4096) };
 
+/// Allocate a frame with a generic physical allocator
 pub fn allocate_frame<A: PhysicalAllocator>(
     allocator: A,
-) -> Result<AlignedAddress<Physical>, PhysicalAllocatorError> {
+) -> Result<AlignedAddress<Physical>, AllocatorError> {
     allocator.allocate(FRAME_LAYOUT)
 }
 
-pub fn allocate_frame_platform_alloc() -> Result<AlignedAddress<Physical>, PhysicalAllocatorError> {
+/// Allocate a frame with the current global physical allocator
+pub fn allocate_frame_platform_alloc() -> Result<AlignedAddress<Physical>, AllocatorError> {
     allocate_frame(&crate::PHYSICAL_ALLOCATOR)
 }
 
+/// Deallocate a frame with a generic physical allocator
 pub fn deallocate_frame<A: PhysicalAllocator>(allocator: A, frame: AlignedAddress<Physical>) {
     unsafe { allocator.deallocate(frame, FRAME_LAYOUT) }
 }
 
+// TODO: Add in page table deallocation
+#[allow(dead_code)]
+/// Deallocate a frame with the current global physical allocator
 pub fn deallocate_frame_platform_alloc(frame: AlignedAddress<Physical>) {
     deallocate_frame(&crate::PHYSICAL_ALLOCATOR, frame)
 }
@@ -360,7 +366,7 @@ impl TableLevel1 {
         let entry = self.data[index].clone();
         if !entry.get_flags().contains(AddressWithFlags::PRESENT) {
             let addr = allocate_frame_platform_alloc()
-                .map_err(|e| MemoryManagerError::PhysicalAllocator(e))?;
+                .map_err(|e| MemoryManagerError::Allocator(e))?;
             self.data[index] = PageTableEntry::new(addr, flags);
         }
 

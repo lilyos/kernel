@@ -205,9 +205,6 @@ pub struct ExceptionStackFrame {
     pub stack_segment: u64,
 }
 
-/// Function signature for handling interrupts for this platform
-pub type InterruptHandler = unsafe extern "x86-interrupt" fn(&mut ExceptionStackFrame);
-
 /// The generic kernel interrupt handler
 #[used]
 pub static mut INTERRUPT_HANDLER: Option<fn(InterruptType)> = None;

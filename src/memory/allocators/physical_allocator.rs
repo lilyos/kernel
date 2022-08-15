@@ -8,9 +8,8 @@ use limine_protocol::structures::memory_map_entry::{EntryType, MemoryMapEntry};
 use log::{debug, info};
 
 use crate::{
-    arch::PlatformType,
     collections::BitSlice,
-    errors::{GenericError, PhysicalAllocatorError},
+    errors::{GenericError, AllocatorError},
     memory::{
         addresses::{AlignedAddress, Physical},
         utilities::align,
@@ -18,9 +17,6 @@ use crate::{
     sync::RwLock,
     traits::{Init, PhysicalAllocator, PlatformAddress},
 };
-
-type RawAddress = <PlatformType as crate::traits::Platform>::RawAddress;
-type UnderlyingType = <RawAddress as PlatformAddress>::UnderlyingType;
 
 /// The Lotus OS Page Allocator
 pub struct PageAllocator<'a> {
@@ -112,6 +108,7 @@ impl<'a> PageAllocator<'a> {
         None
     }
 
+    /*
     /// Find a series of zones with a specific size
     ///
     /// # Arguments
@@ -136,6 +133,7 @@ impl<'a> PageAllocator<'a> {
 
         None
     }
+    */
 
     /// Set blocks in a specified range
     ///
@@ -161,7 +159,7 @@ impl<'a> PageAllocator<'a> {
 }
 
 impl<'a> Init for PageAllocator<'a> {
-    type Error = PhysicalAllocatorError;
+    type Error = AllocatorError;
 
     type Input = &'a [&'a MemoryMapEntry];
 
@@ -174,13 +172,13 @@ impl<'a> Init for PageAllocator<'a> {
             let mmen_end: usize = mentry
                 .end()
                 .try_into()
-                .map_err(|_| PhysicalAllocatorError::Generic(GenericError::IntConversionError))?;
+                .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?;
             if mmen_end > end {
                 end = mmen_end as usize;
             }
             pages += (mmen_end
                 - TryInto::<usize>::try_into(mentry.base).map_err(|_| {
-                    PhysicalAllocatorError::Generic(GenericError::IntConversionError)
+                    AllocatorError::Generic(GenericError::IntConversionError)
                 })?)
                 / Self::BLOCK_SIZE;
         }
@@ -197,12 +195,12 @@ impl<'a> Init for PageAllocator<'a> {
         let scratch_start: usize = scratch_entry
             .base
             .try_into()
-            .map_err(|_| PhysicalAllocatorError::Generic(GenericError::IntConversionError))?;
+            .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?;
 
         let scratch_end = align(
             (scratch_start + scratch_bytes)
                 .try_into()
-                .map_err(|_| PhysicalAllocatorError::Generic(GenericError::IntConversionError))?,
+                .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?,
             Self::BLOCK_SIZE,
         ) - 1;
 
@@ -212,7 +210,7 @@ impl<'a> Init for PageAllocator<'a> {
                 sscratch.init(
                     scratch_start as *mut u8,
                     scratch_bytes.try_into().map_err(|_| {
-                        PhysicalAllocatorError::Generic(GenericError::IntConversionError)
+                        AllocatorError::Generic(GenericError::IntConversionError)
                     })?,
                 )
             };
@@ -222,10 +220,10 @@ impl<'a> Init for PageAllocator<'a> {
                     if a < 4096
                         || (a
                             >= scratch_start.try_into().map_err(|_| {
-                                PhysicalAllocatorError::Generic(GenericError::IntConversionError)
+                                AllocatorError::Generic(GenericError::IntConversionError)
                             })?
                             && a < scratch_end.try_into().map_err(|_| {
-                                PhysicalAllocatorError::Generic(GenericError::IntConversionError)
+                                AllocatorError::Generic(GenericError::IntConversionError)
                             })?)
                         || i.kind == EntryType::Reserved
                         || i.kind == EntryType::AcpiNonVolatile
@@ -235,7 +233,7 @@ impl<'a> Init for PageAllocator<'a> {
                     {
                         sscratch.set(
                             (a / 4096).try_into().map_err(|_| {
-                                PhysicalAllocatorError::Generic(GenericError::IntConversionError)
+                                AllocatorError::Generic(GenericError::IntConversionError)
                             })?,
                             true,
                         )
@@ -259,9 +257,9 @@ impl<'a> Init for PageAllocator<'a> {
 }
 
 unsafe impl<'a> PhysicalAllocator for PageAllocator<'a> {
-    fn allocate(&self, layout: Layout) -> Result<AlignedAddress<Physical>, PhysicalAllocatorError> {
+    fn allocate(&self, layout: Layout) -> Result<AlignedAddress<Physical>, AllocatorError> {
         if layout.size() >= self.pages.load(Ordering::SeqCst) * Self::BLOCK_SIZE {
-            return Err(PhysicalAllocatorError::AllocationTooLarge);
+            return Err(AllocatorError::NotEnoughMemory);
         }
 
         let pages = Self::page_count_for_layout(layout);
@@ -269,11 +267,11 @@ unsafe impl<'a> PhysicalAllocator for PageAllocator<'a> {
             let page_count = self.pages.load(Ordering::SeqCst);
             let used = self.get_used();
             if page_count == used {
-                PhysicalAllocatorError::OutOfMemory
+                AllocatorError::OutOfMemory
             } else if pages + used > page_count {
-                PhysicalAllocatorError::AllocationTooLarge
+                AllocatorError::NotEnoughMemory
             } else {
-                PhysicalAllocatorError::NoMatchingAlignment
+                AllocatorError::RequestUnfulfillable
             }
         })?;
 

@@ -123,13 +123,11 @@ impl Debug for RawAddress {
 }
 
 impl PlatformAddress for RawAddress {
-    type Error = AddressError;
-
     type AddressType = RawAddress;
 
     type UnderlyingType = u64;
 
-    fn new_address(addr: Self::UnderlyingType) -> Result<Self::AddressType, Self::Error> {
+    fn new_address(addr: Self::UnderlyingType) -> Result<Self::AddressType, AddressError> {
         Self::new(addr)
     }
 

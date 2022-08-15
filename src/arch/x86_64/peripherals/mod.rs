@@ -19,7 +19,7 @@ pub mod cpu;
 
 lazy_static! {
     /// UART Structure
-    pub lazy static UART: Mutex<Uart> = {
+    pub lazy static _UART: Mutex<Uart> = {
         use self::uart::{inb, outb, COM_1};
 
         outb(0, COM_1 + 1); // Disable all interrupts

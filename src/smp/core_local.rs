@@ -8,30 +8,41 @@ use crate::{
     traits::{Init, MemoryFlags, MemoryManager},
 };
 
+/// Core-local data structure.
+/// This contains the heap allocator, scheduler, and misc. platform data
 #[repr(C, align(0x1000))]
 pub struct CoreLocalData {
+    /// The Core's Magic Number
     pub magic: u32,
+    /// The Core's ID
     pub id: u32,
+    /// The Core's Heap
     pub heap: *mut (),
+    /// The Core's Scheduler
     pub scheduler: *mut (),
     platform_data: Box<[u8]>,
 }
 
+/// Core Manager
+/// Handles per-core data
 pub struct CoreManager {
     core_refs: RwLock<Vec<(u32, *mut CoreLocalData), NeverAllocator>>,
 }
 
 impl CoreManager {
+    /// Create a new Core Manager
     pub const fn new() -> Self {
         Self {
             core_refs: RwLock::new(Vec::new_in(NeverAllocator)),
         }
     }
 
+    /// Get Core Local Data for the given id
     pub fn get_core_local_data(&self, id: u32) -> Option<*mut CoreLocalData> {
         Some(self.core_refs.read().iter().find(|(i, _)| *i == id)?.1)
     }
 
+    /// Initialize the Core this function is run on and register it with the Core Manager
     pub fn initialize_core(&self) {}
 }
 

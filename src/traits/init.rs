@@ -32,10 +32,13 @@
 /// }
 /// ```
 pub trait Init {
+    /// The error to be returned by the init implementation, defaults to [core::convert::Infallible]
     type Error = core::convert::Infallible;
 
+    /// The input type for the `init` function
     type Input = ();
 
+    /// The function that actually does the initialization
     fn init(&self, val: Self::Input) -> Result<(), Self::Error> {
         let _ = val;
         Ok(())
