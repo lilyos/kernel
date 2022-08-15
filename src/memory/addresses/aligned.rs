@@ -2,7 +2,7 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use crate::{
     errors::{AddressError, GenericError},
-    traits::RawAddress as RawAddressTrait,
+    traits::PlatformAddress,
 };
 
 use super::{Address, Physical, RawAddress, UnderlyingType, Virtual};
@@ -19,9 +19,6 @@ impl<T> Clone for AlignedAddress<T> {
 impl<T> Copy for AlignedAddress<T> {}
 
 impl<T> AlignedAddress<T> {
-    /// The address mask
-    pub const ADDRESS_MASK: usize = 0x000F_FFFF_FFFF_F000;
-
     /// Get the inner raw address
     pub fn inner(&self) -> RawAddress {
         self.0
@@ -30,28 +27,38 @@ impl<T> AlignedAddress<T> {
 
 impl AlignedAddress<Virtual> {
     /// Try to form an aligned address from a usize
-    fn new(addr: *const ()) -> Result<Self, AddressError> {
+    pub fn new(addr: *const ()) -> Result<Self, AddressError> {
         let addr = addr as usize;
         if addr % 4096 != 0 {
             Err(AddressError::AddressNotAligned)
         } else {
             Ok(AlignedAddress(
-                unsafe { RawAddress::new_address(addr as UnderlyingType)? },
+                RawAddress::new(addr as UnderlyingType)?,
                 PhantomData,
             ))
         }
+    }
+
+    /// Get the inner value as a pointer
+    pub fn get_inner_ptr(&self) -> *const () {
+        self.inner().into_raw() as *const ()
+    }
+
+    /// Get the inner value as a mutable pointer
+    pub fn get_inner_ptr_mut(&mut self) -> *mut () {
+        self.inner().into_raw() as *mut ()
     }
 }
 
 impl AlignedAddress<Physical> {
     /// Try to form an aligned address from a usize
-    fn new(addr: usize) -> Result<Self, AddressError> {
+    pub fn new(addr: usize) -> Result<Self, AddressError> {
         let addr = addr;
         if addr % 4096 != 0 {
             Err(AddressError::AddressNotAligned)
         } else {
             Ok(AlignedAddress(
-                unsafe { RawAddress::new_address(addr as UnderlyingType)? },
+                RawAddress::new(addr as UnderlyingType)?,
                 PhantomData,
             ))
         }
@@ -99,15 +106,15 @@ impl TryFrom<*mut u8> for AlignedAddress<Virtual> {
     }
 }
 
-impl Into<*const ()> for AlignedAddress<Virtual> {
-    fn into(self) -> *const () {
-        self.inner().into_raw() as *const ()
+impl From<AlignedAddress<Virtual>> for *const () {
+    fn from(val: AlignedAddress<Virtual>) -> Self {
+        val.inner().into_raw() as *const ()
     }
 }
 
-impl Into<*mut ()> for AlignedAddress<Virtual> {
-    fn into(self) -> *mut () {
-        self.inner().into_raw() as *mut ()
+impl From<AlignedAddress<Virtual>> for *mut () {
+    fn from(val: AlignedAddress<Virtual>) -> Self {
+        val.inner().into_raw() as *mut ()
     }
 }
 
@@ -145,14 +152,20 @@ impl TryFrom<UnderlyingType> for AlignedAddress<Physical> {
     }
 }
 
-impl Into<usize> for AlignedAddress<Physical> {
-    fn into(self) -> usize {
-        self.inner().into_raw() as usize
+impl From<AlignedAddress<Physical>> for usize {
+    fn from(val: AlignedAddress<Physical>) -> Self {
+        val.inner().into_raw() as usize
     }
 }
 
-impl Into<UnderlyingType> for AlignedAddress<Physical> {
-    fn into(self) -> UnderlyingType {
-        self.inner().into_raw() as UnderlyingType
+impl From<AlignedAddress<Physical>> for UnderlyingType {
+    fn from(val: AlignedAddress<Physical>) -> Self {
+        val.inner().into_raw() as UnderlyingType
+    }
+}
+
+impl<T> From<AlignedAddress<T>> for Address<T> {
+    fn from(val: AlignedAddress<T>) -> Self {
+        Address(val.inner(), PhantomData)
     }
 }

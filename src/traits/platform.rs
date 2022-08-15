@@ -1,13 +1,10 @@
-use core::alloc::Allocator;
+use core::fmt::Write;
 
-use log::Log;
+use crate::smp::CoreLocalData;
 
-use super::{Init, InterruptManager, MemoryManager, PowerManager, RawAddress, TimerManager};
+use super::{Init, InterruptManager, MemoryManager, PlatformAddress, PowerManager, TimerManager};
 
 pub unsafe trait Platform: Init {
-    /// The Platform's Physical Allocator
-    type PhysicalAllocator: Allocator + Init;
-
     /// The Platform's Memory Manager
     type MemoryManager: MemoryManager + Init;
 
@@ -21,18 +18,21 @@ pub unsafe trait Platform: Init {
     type TimerManager: TimerManager + Init;
 
     /// The Platform's Raw Address type, which Address routes through for genericness
-    type RawAddress: RawAddress;
+    type RawAddress: PlatformAddress;
 
-    /// The Platform's Logger
-    type Logger: Log + Init;
+    /// The Platform's Text Output
+    type TextOutput: Write + Init;
 
-    fn get_physical_allocator(&self) -> &'static Self::PhysicalAllocator;
+    fn get_memory_manager(&'static self) -> &'static Self::MemoryManager;
 
-    fn get_memory_manager(&self) -> &'static Self::MemoryManager;
+    fn get_interrupt_manager(&'static self) -> &'static Self::InterruptManager;
 
-    fn get_interrupt_manager(&self) -> &'static Self::InterruptManager;
+    fn get_power_manager(&'static self) -> &'static Self::PowerManager;
 
-    fn get_power_manager(&self) -> &'static Self::PowerManager;
+    #[allow(clippy::mut_from_ref)]
+    fn get_text_output(&'static self) -> &'static mut Self::TextOutput;
 
-    fn get_logger(&self) -> &'static Self::Logger;
+    fn initialize_current_core(&'static self);
+
+    fn get_core_local(&'static self) -> &'static CoreLocalData;
 }

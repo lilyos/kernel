@@ -24,11 +24,11 @@ unsafe impl PowerManagerTrait for PowerManager {
         Err(Self::Error::Generic(GenericError::NotImplemented))
     }
 
-    fn switch_state(&self, new_state: crate::traits::PowerState) -> Result<(), Self::Error> {
+    fn switch_state(&self, _new_state: crate::traits::PowerState) -> Result<(), Self::Error> {
         Err(Self::Error::Generic(GenericError::NotImplemented))
     }
 
-    fn shutdown(&self, kind: crate::traits::PowerOffKind) -> ! {
+    fn shutdown(&self, _kind: crate::traits::PowerOffKind) -> ! {
         loop {}
     }
 }

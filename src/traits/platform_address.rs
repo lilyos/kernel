@@ -2,7 +2,7 @@ use core::fmt;
 
 use crate::{errors::AddressError, memory::addresses::Address};
 
-pub trait RawAddress: fmt::Debug + Clone + Copy {
+pub trait PlatformAddress: fmt::Debug + Clone + Copy {
     type Error = AddressError;
 
     type AddressType;

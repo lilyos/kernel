@@ -1,7 +1,7 @@
 use log::{error, trace};
 
 use crate::{
-    errors::{GenericError, MemoryManagerError},
+    errors::MemoryManagerError,
     memory::addresses::{Address, Physical, Virtual},
     traits::{Init, MemoryFlags},
 };
@@ -23,33 +23,30 @@ impl MemoryManager {
 unsafe impl MemoryManagerTrait for MemoryManager {
     type RootTable = TableLevel4;
 
-    unsafe fn current_table(&self, tr: &mut Self::RootTable) -> Result<(), Self::Error> {
-        let ptr: *mut Self::RootTable = tr;
-        unsafe { asm!("mov cr3, {}", in(reg) ptr) }
+    unsafe fn current_table(&self, tr: &mut TableLevel4) -> Result<(), MemoryManagerError> {
+        asm!("mov cr3, {}", in(reg) (tr) as *mut TableLevel4);
         Ok(())
     }
 
-    unsafe fn get_current_table(&self) -> Result<&mut Self::RootTable, Self::Error> {
+    unsafe fn get_current_table(&self) -> Result<&'static mut TableLevel4, MemoryManagerError> {
         let cr3: u64;
-        unsafe {
-            asm!("mov {}, cr3", out(reg) cr3);
-            Ok(&mut *(cr3 as *mut TableLevel4))
-        }
+
+        asm!("mov {}, cr3", out(reg) cr3);
+        Ok(&mut *(cr3 as *mut TableLevel4))
     }
 
     /// Map the specified frame to the destination, with the option to provide additional flags
+    /// These flags will be applied to all **created** frames, it will not affect already present entries
     unsafe fn map(
         &self,
-        rtable: &'static mut Self::RootTable,
+        rtable: &mut Self::RootTable,
         src: AlignedAddress<Physical>,
         dst: AlignedAddress<Virtual>,
         flags: MemoryFlags,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), MemoryManagerError> {
         let dst = dst.inner();
 
-        let p3 = rtable
-            .sub_table_create(dst.p4_index())
-            .map_err(|e| MemoryManagerError::Generic(GenericError::AllocationFailed))?;
+        let p3 = rtable.sub_table_create(dst.p4_index(), flags)?;
 
         if p3.data[dst.p3_index()]
             .get_flags()
@@ -58,9 +55,7 @@ unsafe impl MemoryManagerTrait for MemoryManager {
             return Err(MemoryManagerError::CannotMapToHugePage);
         }
 
-        let p2 = p3
-            .sub_table_create(dst.p3_index())
-            .map_err(|e| MemoryManagerError::Generic(GenericError::AllocationFailed))?;
+        let p2 = p3.sub_table_create(dst.p3_index(), flags)?;
 
         if p2.data[dst.p2_index()]
             .get_flags()
@@ -69,11 +64,9 @@ unsafe impl MemoryManagerTrait for MemoryManager {
             return Err(MemoryManagerError::CannotMapToHugePage);
         }
 
-        let p1 = p2
-            .sub_table_create(dst.p2_index())
-            .map_err(|e| MemoryManagerError::Generic(GenericError::AllocationFailed))?;
+        let p1 = p2.sub_table_create(dst.p2_index(), flags)?;
 
-        let _frame = p1.frame_set_specified(dst.p1_index(), src);
+        let _frame = p1.frame_set_specified(dst.p1_index(), src, flags);
 
         Ok(())
     }
@@ -81,13 +74,13 @@ unsafe impl MemoryManagerTrait for MemoryManager {
     /// Unmap the specified virtual address
     unsafe fn unmap(
         &self,
-        rtable: &'static mut Self::RootTable,
+        rtable: &mut Self::RootTable,
         addr: AlignedAddress<Virtual>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), MemoryManagerError> {
         let addr = addr.inner();
 
         let p3 = rtable
-            .sub_table(addr.p4_index())
+            .sub_table_mut(addr.p4_index())
             .ok_or(MemoryManagerError::AddressUnmapped)?;
 
         if p3.data[addr.p3_index()]
@@ -98,7 +91,7 @@ unsafe impl MemoryManagerTrait for MemoryManager {
         }
 
         let p2 = p3
-            .sub_table(addr.p3_index())
+            .sub_table_mut(addr.p3_index())
             .ok_or(MemoryManagerError::AddressUnmapped)?;
 
         if p2.data[addr.p2_index()]
@@ -109,7 +102,7 @@ unsafe impl MemoryManagerTrait for MemoryManager {
         }
 
         let p1 = p2
-            .sub_table(addr.p2_index())
+            .sub_table_mut(addr.p2_index())
             .ok_or(MemoryManagerError::AddressUnmapped)?;
 
         p1.data[addr.p1_index()].0 = AddressWithFlags::none();
@@ -120,7 +113,7 @@ unsafe impl MemoryManagerTrait for MemoryManager {
     /// Convert a given virtual address to its physical counterpart
     fn virtual_to_physical(
         &self,
-        rtable: &'static mut Self::RootTable,
+        rtable: &Self::RootTable,
         addr: Address<Virtual>,
     ) -> Option<Address<Physical>> {
         let addr = addr.inner();

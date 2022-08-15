@@ -7,9 +7,6 @@ pub use timer::TimerManager;
 
 use crate::sync::{lazy_static, Mutex};
 
-mod logger;
-pub use logger::{SerialLogger, LOGGER};
-
 /// Structures and functions relating to the CPU
 pub mod cpu;
 

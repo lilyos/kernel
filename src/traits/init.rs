@@ -36,7 +36,8 @@ pub trait Init {
 
     type Input = ();
 
-    fn init(&self, init_val: Self::Input) -> Result<(), Self::Error> {
+    fn init(&self, val: Self::Input) -> Result<(), Self::Error> {
+        let _ = val;
         Ok(())
     }
 }

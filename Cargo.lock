@@ -18,9 +18,9 @@ dependencies = [
 
 [[package]]
 name = "limine-protocol"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a0f17aa35e571af3199b9e0795a000de42e00cf7bc3bfb723832f8d7b9b6240"
+checksum = "52d249b7a96a17c93559c30884b533304a2e1b061c4257f6c792313dc2a8ec59"
 
 [[package]]
 name = "log"

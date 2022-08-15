@@ -295,9 +295,9 @@ pub unsafe fn install_interrupt_handler() {
 
     use crate::traits::Platform;
 
-    let idt_o = unsafe { crate::arch::PlatformManager.get_interrupt_manager().idt() };
+    let idt_o = crate::arch::PLATFORM_MANAGER.get_interrupt_manager().idt();
 
-    let idt = { idt_o.inner };
+    let mut idt = { idt_o.inner };
 
     macro_rules! create_interrupt {
         ($idx:expr, $handler:ident, $segment:expr, $priv_level:expr) => {

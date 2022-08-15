@@ -3,6 +3,8 @@ use core::{
     fmt::{Error, Write},
 };
 
+use crate::traits::Init;
+
 /// Uart structure for reading and writing to itself
 pub struct Uart {}
 
@@ -59,6 +61,7 @@ pub fn outb(val: u8, port: u16) {
             "out dx, al",
             in("dx") port,
             in("al") val,
+            options(nomem, nostack, preserves_flags)
         )
     }
 }
@@ -70,7 +73,8 @@ pub fn inb(port: u16) -> u8 {
         asm!(
             "in al, dx",
             in("dx") port,
-            out("al") result
+            out("al") result,
+            options(nomem, nostack, preserves_flags)
         )
     }
     result
@@ -84,3 +88,5 @@ impl Write for Uart {
         Ok(())
     }
 }
+
+impl Init for Uart {}

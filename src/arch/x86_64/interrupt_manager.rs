@@ -23,6 +23,7 @@ impl InterruptManager {
     /// # Safety
     /// The caller must ensure that multiple mutable references to the IDT
     /// do not exist at the same time, as that would be Undefined Behavior
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn idt(&self) -> &mut InterruptDescriptorTable {
         &mut *(self.idt.get())
     }
@@ -41,7 +42,7 @@ unsafe impl InterruptManagerTrait for InterruptManager {
 
     fn set_handler<T: Fn(crate::interrupts::InterruptType)>(
         &self,
-        func: &T,
+        _func: &T,
     ) -> Result<(), InterruptManagerError> {
         Err(InterruptManagerError::Generic(GenericError::NotImplemented))
     }
@@ -52,7 +53,7 @@ impl Init for InterruptManager {
 
     type Input = ();
 
-    fn init(&self, init_val: Self::Input) -> Result<(), Self::Error> {
+    fn init(&self, _: Self::Input) -> Result<(), Self::Error> {
         unsafe { super::structures::install_interrupt_handler() }
         Ok(())
     }

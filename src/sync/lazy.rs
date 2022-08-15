@@ -15,7 +15,7 @@ use core::{
 ///
 /// let lazy_u32 = Lazy::new(initialize_the_number);
 ///
-/// assert_eq!(*lazy_u32, 834234 << 3)
+/// assert_eq!(*lazy_u32, 834234 << 3);
 /// ```
 pub struct Lazy<T> {
     init: AtomicBool,
@@ -85,12 +85,14 @@ macro_rules! lazy_static {
         )*
     ) => {
         $(
-            fn create_static_item() -> $ty {
-                $func
-            }
-
             $(#[$outer_meta])*
-            $visib static $ident: $crate::sync::Lazy<$ty> = $crate::sync::Lazy::new(create_static_item);
+            $visib static $ident: $crate::sync::Lazy<$ty> = {
+                fn create_static_item() -> $ty {
+                    $func
+                }
+
+                $crate::sync::Lazy::new(create_static_item)
+            };
         )*
     };
 }

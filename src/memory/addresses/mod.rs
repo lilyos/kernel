@@ -7,7 +7,7 @@ pub enum Virtual {}
 pub enum Physical {}
 
 type RawAddress = <crate::arch::PlatformType as crate::traits::Platform>::RawAddress;
-type UnderlyingType = <RawAddress as crate::traits::RawAddress>::UnderlyingType;
+type UnderlyingType = <RawAddress as crate::traits::PlatformAddress>::UnderlyingType;
 
 mod aligned;
 pub use aligned::AlignedAddress;

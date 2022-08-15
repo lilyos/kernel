@@ -18,7 +18,8 @@
     const_for,
     const_trait_impl,
     const_convert,
-    allocator_api
+    allocator_api,
+    vec_into_raw_parts
 )]
 #![warn(
     clippy::pedantic,
@@ -34,16 +35,42 @@
 
 // BEGIN: Modules, Macros, and Prelude
 
-/// Collections used across the kernel
-pub mod collections;
-
-/// Structures relating to memory management
-pub mod memory;
-
-pub mod errors;
+// Self-explanitory
+extern "C" {
+    static __KERNEL_START: *mut ();
+    static __RODATA_START: *mut ();
+    static __RODATA_END: *mut ();
+    static __TEXT_START: *mut ();
+    static __TEXT_END: *mut ();
+    static __DATA_START: *mut ();
+    static __DATA_END: *mut ();
+    static __BSS_START: *mut ();
+    static __BSS_END: *mut ();
+    static __MISC_START: *mut ();
+    static __MISC_END: *mut ();
+    static __KERNEL_END: *mut ();
+}
 
 /// Architecture-specific structures
 pub mod arch;
+
+/// Collections used across the kernel
+pub mod collections;
+
+/// Error types
+pub mod errors;
+
+/// Interrupt handling
+pub mod interrupts;
+
+/// The Platform Logger
+pub mod platform_logger;
+
+/// Macros
+mod macros;
+
+/// Structures relating to memory management
+pub mod memory;
 
 /// Structures for atomic operations
 pub mod sync;
@@ -51,14 +78,8 @@ pub mod sync;
 /// Traits for various things
 pub mod traits;
 
-/// Interrupt handling
-pub mod interrupts;
-
-/// The logger
-pub mod logger;
-
-/// Macros
-mod macros;
+/// Multi-core related objects
+pub mod smp;
 
 mod prelude {
     pub mod rust_2021 {
@@ -68,9 +89,9 @@ mod prelude {
             macro_rules! print {
                 ($($arg:tt)*) => (
                     {
+                        use $crate::{traits::Platform, arch::PLATFORM_MANAGER};
                         use core::fmt::Write;
-                        let mut uart = $crate::arch::peripherals::UART.lock();
-                        uart.write_fmt(format_args!($($arg)*)).unwrap();
+                        PLATFORM_MANAGER.get_text_output().write_fmt(format_args!($($arg)*)).unwrap();
                     }
                 );
             }
@@ -102,37 +123,78 @@ pub use prelude::rust_2021::*;
 // Actual code begins here
 
 use log::{debug, error, info, trace};
-use memory::allocators::HeapAllocator;
 
-use crate::{arch::PlatformManager, interrupts::InterruptType, traits::Init};
+use memory::allocators::{NeverAllocator, PageAllocator};
+
+use smp::CoreManager;
+use sync::lazy_static;
+use traits::Platform;
+
+use crate::{arch::PLATFORM_MANAGER, traits::Init};
 
 use limine_protocol::{
-    KernelAddressRequest, MemoryMapRequest, Request, SMPRequest, StackSizeRequest,
+    HHDMRequest, KernelAddressRequest, MemoryMapRequest, Request, SMPRequest, StackSizeRequest,
 };
 
-#[used]
 static MEMORY_MAP: Request<MemoryMapRequest> = MemoryMapRequest::default().into();
 
-#[used]
 static KERNEL_ADDRESS: Request<KernelAddressRequest> = KernelAddressRequest::default().into();
 
-#[used]
 static STACK_REQUEST: Request<StackSizeRequest> = StackSizeRequest {
     stack_size: 1024 * 64,
     ..StackSizeRequest::default()
 }
 .into();
 
-#[used]
 static SMP_REQUEST: Request<SMPRequest> = SMPRequest {
     flags: 1,
     ..SMPRequest::default()
 }
 .into();
 
-/// The Heap Allocator
+static HHDM_REQUEST: Request<HHDMRequest> = HHDMRequest::default().into();
+
+lazy_static! {
+    /// The Range for the Higher Half Direct Map
+    pub lazy static HHDM_RANGE: core::ops::Range<usize> = {
+        use crate::memory::utilities::align;
+        unsafe {
+            let offset = crate::HHDM_REQUEST.response.unwrap().as_ref().offset as usize;
+            offset
+                ..align(
+                    offset
+                        + crate::MEMORY_MAP.response
+                            .unwrap()
+                            .as_ref()
+                            .get_memory_map()
+                            .unwrap()
+                            .iter()
+                            .last()
+                            .unwrap()
+                            .end() as usize,
+                    4096,
+                )
+        }
+    };
+
+    /// The Safe range to use for upper half mapping
+    pub lazy static SAFE_UPPER_HALF_RANGE: core::ops::Range<usize> = {
+        HHDM_RANGE.end..(2 ^ 48) - 1
+    };
+}
+
+/// This shouldn't be used, it immediately errors out. This is intentional
 #[global_allocator]
-static ALLOCATOR: HeapAllocator = HeapAllocator::new();
+static ALLOCATOR: NeverAllocator = NeverAllocator;
+
+/// The Physical Allocator
+static PHYSICAL_ALLOCATOR: PageAllocator = PageAllocator::new();
+
+pub fn get_memory_manager() -> &'static <arch::PlatformType as Platform>::MemoryManager {
+    PLATFORM_MANAGER.get_memory_manager()
+}
+
+static CORE_MANAGER: CoreManager = CoreManager::new();
 
 /// The kernel entrypoint
 #[no_mangle]
@@ -141,13 +203,12 @@ pub extern "C" fn _start() -> ! {
 }
 
 /// The kernel main loop
-#[no_mangle]
 fn kentry() -> ! {
-    crate::logger::LOGGER.init();
+    platform_logger::LOGGER.init().unwrap();
     info!("Logging enabled");
     trace!("{:?}", *MEMORY_MAP);
 
-    assert_eq!(core::mem::size_of::<usize>(), core::mem::size_of::<<<crate::arch::PlatformType as crate::traits::Platform>::RawAddress as crate::traits::RawAddress>::UnderlyingType>());
+    assert_eq!(core::mem::size_of::<usize>(), core::mem::size_of::<<<crate::arch::PlatformType as crate::traits::Platform>::RawAddress as crate::traits::PlatformAddress>::UnderlyingType>());
 
     let mmap_res = unsafe {
         MEMORY_MAP
@@ -173,47 +234,21 @@ fn kentry() -> ! {
 
     debug!("Kernel Addresses: {:#?}", addrs);
 
-    PlatformManager.init(mmap).unwrap();
+    let smp = unsafe { SMP_REQUEST.response.unwrap().as_ref() };
+
+    debug!("SMP Response: {:#?}", smp);
+
+    PHYSICAL_ALLOCATOR.init(mmap).unwrap();
 
     info!("Initialized page allocator");
 
-    const INITIAL_HEAP_SIZE: usize = 8;
-    let heap_alloc = PHYSICAL_ALLOCATOR.alloc(INITIAL_HEAP_SIZE).unwrap();
-    info!(
-        "Allocated Heap space starting at {:#X}",
-        heap_alloc.address_mut() as usize
-    );
+    CORE_MANAGER
+        .init(smp.cpu_count.try_into().unwrap())
+        .unwrap();
 
-    unsafe {
-        ALLOCATOR
-            .init(heap_alloc.address_mut(), INITIAL_HEAP_SIZE * 1024)
-            .unwrap()
-    };
-    info!("Initialized Heap Allocator");
+    info!("Initialized Core Manager");
 
-    {
-        let mut uwu = Vec::new();
-        let mut owo = Vec::new();
-        uwu.push(1);
-        owo.push(1);
-        for i in 1..101 {
-            uwu.push(i);
-            owo.push(i);
-        }
-    }
-
-    assert!(MEMORY_MANAGER
-        .virtual_to_physical(core::ptr::null::<u8>().try_into().unwrap())
-        .is_none());
-
-    let x = 9u64;
-    let x_ptr = &x as *const u64;
-    debug!("X-PTR: {:?}", x_ptr);
-
-    let x_got_ptr = MEMORY_MANAGER.virtual_to_physical((x_ptr as *const u8).try_into().unwrap());
-    debug!("Got: {:?}", x_got_ptr);
-
-    unsafe { MEMORY_MANAGER.init(mmap).unwrap() }
+    PLATFORM_MANAGER.init(()).unwrap();
 
     {
         let mutex = sync::Mutex::new(9);
@@ -226,6 +261,7 @@ fn kentry() -> ! {
         debug!("Dropped mutex!");
     }
 
+    /*
     // let rsp = RSP::get();
     let rsp = RSP(core::ptr::null_mut());
 
@@ -319,11 +355,24 @@ fn kentry() -> ! {
     let b = unsafe { unsafe_divide(4, 0) }.0;
     assert_eq!(b, 0);
 
+
     info!("Beginning echo...");
     loop {
         let mut uart = crate::arch::peripherals::UART.lock();
         let byte = uart.read_byte();
         uart.write_byte(byte);
+    }
+    */
+    let mut num = 0u64;
+    loop {
+        if num % 13 == 0 {
+            debug!("Heartbeat <3");
+        }
+        if num == u64::MAX {
+            num = 0;
+        } else {
+            num += 1;
+        }
     }
 }
 
@@ -336,6 +385,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(loc) = info.location() {
         error!("IN: {}:{}", loc.file(), loc.line());
     }
+
     loop {
         unsafe { asm!("pause") }
     }

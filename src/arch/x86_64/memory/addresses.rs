@@ -4,15 +4,12 @@ use crate::{
     errors::{AddressError, GenericError},
     macros::bitflags::bitflags,
     memory::utilities::is_address_canonical,
-    traits::RawAddress as RawAddressTrait,
+    traits::PlatformAddress,
 };
-
-/// The underlying type used by addresses
-pub type AddressType = u64;
 
 bitflags! {
     #[derive(Debug)]
-    pub struct AddressWithFlags: AddressType {
+    pub struct AddressWithFlags: u64 {
         const PRESENT = 1 << 0;
         const WRITABLE = 1 << 1;
         const USER_ACCESSIBLE = 1 << 2;
@@ -60,7 +57,7 @@ impl RawAddress {
     }
 
     /// Get the contained address
-    pub fn get_address_raw(&self) -> AddressType {
+    pub fn get_address_raw(&self) -> u64 {
         self.address.bits()
     }
 
@@ -125,12 +122,12 @@ impl Debug for RawAddress {
     }
 }
 
-impl RawAddressTrait for RawAddress {
+impl PlatformAddress for RawAddress {
     type Error = AddressError;
 
     type AddressType = RawAddress;
 
-    type UnderlyingType = AddressType;
+    type UnderlyingType = u64;
 
     fn new_address(addr: Self::UnderlyingType) -> Result<Self::AddressType, Self::Error> {
         Self::new(addr)
@@ -145,6 +142,6 @@ impl RawAddressTrait for RawAddress {
     }
 
     fn into_raw(self) -> Self::UnderlyingType {
-        self.address.bits
+        self.get_address_raw()
     }
 }

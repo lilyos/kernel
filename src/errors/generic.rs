@@ -4,5 +4,6 @@ pub enum GenericError {
     NotSupported,
     NotInitialized,
     IntConversionError,
+    IntOverflowOrUnderflow,
     AllocationFailed,
 }

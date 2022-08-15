@@ -3,7 +3,7 @@ use core::{fmt::Debug, marker::PhantomData};
 use crate::{
     errors::{AddressError, GenericError},
     memory::utilities::align_down,
-    traits::RawAddress as RawAddressTrait,
+    traits::PlatformAddress,
 };
 
 use super::{AlignedAddress, Physical, RawAddress, UnderlyingType, Virtual};
@@ -93,26 +93,5 @@ impl Address<Physical> {
             RawAddress::new(address as UnderlyingType)?,
             PhantomData,
         ))
-    }
-}
-
-impl TryFrom<AlignedAddress<Virtual>> for Address<Virtual> {
-    type Error = AddressError;
-
-    fn try_from(addr: AlignedAddress<Virtual>) -> Result<Self, Self::Error> {
-        Address::<Virtual>::new(addr.inner().into_raw() as *const ())
-    }
-}
-
-impl TryFrom<AlignedAddress<Physical>> for Address<Physical> {
-    type Error = AddressError;
-
-    fn try_from(addr: AlignedAddress<Physical>) -> Result<Self, Self::Error> {
-        Address::<Physical>::new(
-            addr.inner()
-                .into_raw()
-                .try_into()
-                .map_err(|_| AddressError::Generic(GenericError::IntConversionError))?,
-        )
     }
 }

@@ -15,3 +15,9 @@ pub use power_manager::PowerManagerError;
 
 mod timer_manager;
 pub use timer_manager::TimerManagerError;
+
+mod physical_allocator;
+pub use physical_allocator::PhysicalAllocatorError;
+
+mod heap_allocator;
+pub use heap_allocator::HeapAllocatorError;

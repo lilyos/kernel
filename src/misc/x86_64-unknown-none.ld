@@ -5,30 +5,36 @@ ENTRY(_start)
 
 SECTIONS {
     . = 0xffffffff80000000;
-    .dynsym : { *(.dynsym) }
-    .gnu.hash : { *(.gnu.hash) }
-    .hash : { *(.hash) }
-    .dynstr : { *(.dynstr) }
-    .rela.dyn : { *(.rela.dyn) }
+    PROVIDE(__KERNEL_START = .);
+    
     . = ALIGN(0x1000);
+    .PROVIDE(__RODATA_START = .);
     .rodata : { *(.rodata*) }
+    .PROVIDE(__RODATA_END = .);
+
     . = ALIGN(0x1000);
-    .eh_frame_hdr : { *(.eh_frame_hdr) }
-    .eh_frame : { *(.eh_frame) }
-    . = ALIGN(0x1000);
+    PROVIDE(__TEXT_START = .);
     .text : { *(.text*) }
+    PROVIDE(__TEXT_END = .);
+
     . = ALIGN(0x1000);
-    .data.rel.ro : { *(.data.rel.ro*) }
-    .dynamic : { *(.dynamic) }
-    .got : { *(.got) }
-    . = ALIGN(0x1000);
+    PROVIDE(__DATA_START = .);
     .data : { *(.data*) }
+    PROVIDE(__DATA_END = .);
+
     . = ALIGN(0x1000);
+    PROVIDE(__BSS_START = .);
     .bss : { *(.bss*) }
+    PROVIDE(__BSS_END = .);
+
     . = ALIGN(0x1000);
-    .comment : { *(.comment) }
+    PROVIDE(__MISC_START = .);
+    .data.rel.ro : { *(.data.rel.ro*) }
+    .rela.dyn : { *(.rela.dyn) }
+    .got : { *(.got) }
     .symtab : { *(.symtab) }
     .shstrtab : { *(.shstrtab) }
     .strtab : { *(.strtab) }
-    .stivale2hdr : { KEEP(*(.stivale2hdr)) } : .rodata
+    PROVIDE(__MISC_END = .);
+    PROVIDE(__KERNEL_END = .);
 }

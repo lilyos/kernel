@@ -1,16 +1,21 @@
 use crate::{
-    arch::{PlatformManager, PlatformType},
-    collections::DirectingAllocator,
-    memory::{errors::AllocatorError, utilities::align},
+    errors::{GenericError, HeapAllocatorError},
+    get_memory_manager,
+    memory::{
+        addresses::{Address, AlignedAddress, Virtual},
+        utilities::align,
+    },
     sync::RwLock,
-    traits::Platform,
+    traits::{MemoryFlags, MemoryManager},
 };
 
 extern crate alloc;
 use alloc::alloc::{GlobalAlloc, Layout};
 use log::trace;
 
-use core::{cmp::Ordering, ptr};
+use core::{cmp::Ordering, ptr, sync::atomic::AtomicUsize};
+
+use super::NeverAllocator;
 
 /// A struct representing a free region in the heap allocator
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,9 +54,8 @@ impl core::cmp::Ord for FreeRegion {
 
 /// The Lotus OS Heap Allocator
 pub struct HeapAllocator {
-    storage: RwLock<
-        Vec<FreeRegion, DirectingAllocator<'static, <PlatformType as Platform>::PhysicalAllocator>>,
-    >,
+    allocated_item_count: AtomicUsize,
+    storage: RwLock<Vec<FreeRegion, NeverAllocator>>,
 }
 
 static DIV: &str = "================================================================";
@@ -66,14 +70,9 @@ impl HeapAllocator {
     /// unsafe { heap.init(heap_start, heap_size) }
     /// ```
     pub const fn new() -> Self {
-        let _: Option<alloc::alloc::Global> = None;
         HeapAllocator {
-            storage: RwLock::new(Vec::<
-                FreeRegion,
-                DirectingAllocator<'static, <PlatformType as Platform>::PhysicalAllocator>,
-            >::new_in(
-                DirectingAllocator::from_allocator_ref(PlatformManager.get_physical_allocator()),
-            )),
+            allocated_item_count: AtomicUsize::new(0),
+            storage: RwLock::new(Vec::new_in(NeverAllocator)),
         }
     }
 
@@ -86,14 +85,68 @@ impl HeapAllocator {
         a.start.cmp(&b.start)
     }
 
-    fn try_internal_push(&self, item: FreeRegion) -> Result<(), AllocatorError> {
-        let vec = self.storage.write();
-        match vec.try_reserve(1) {
-            Ok(_) => {}
-            Err(_) => return Err(AllocatorError::OutOfMemory),
+    fn try_internal_push(&self, item: FreeRegion) -> Result<(), HeapAllocatorError> {
+        let mut data = self.storage.write();
+        if data.len() == data.capacity() {
+            let original_size = self
+                .allocated_item_count
+                .load(core::sync::atomic::Ordering::Acquire);
+            let new_size = original_size * 2;
+            self.allocated_item_count
+                .store(new_size, core::sync::atomic::Ordering::Release);
+
+            let v_addr = unsafe {
+                get_memory_manager()
+                    .allocate_and_map(
+                        get_memory_manager()
+                            .get_current_table()
+                            .map_err(|e| HeapAllocatorError::MemoryManager(e))?,
+                        (*crate::SAFE_UPPER_HALF_RANGE).clone(),
+                        MemoryFlags::CACHABLE
+                            | MemoryFlags::KERNEL_ONLY
+                            | MemoryFlags::READABLE
+                            | MemoryFlags::WRITABLE,
+                        Self::layout_for_region_array(new_size),
+                    )
+                    .map_err(|e| HeapAllocatorError::MemoryManager(e))?
+            };
+
+            let mut new_vec = unsafe {
+                Vec::from_raw_parts_in(
+                    Into::<Address<Virtual>>::into(v_addr).get_inner_ptr_mut() as *mut FreeRegion,
+                    0,
+                    32,
+                    NeverAllocator,
+                )
+            };
+
+            {
+                new_vec.clone_from_slice(&data[..]);
+
+                let old_data = core::mem::replace(&mut *data, new_vec);
+
+                unsafe {
+                    get_memory_manager().deallocate_and_unmap(
+                        get_memory_manager()
+                            .get_current_table()
+                            .map_err(|e| HeapAllocatorError::MemoryManager(e))?,
+                        AlignedAddress::<Virtual>::new(old_data.into_raw_parts().0 as *const ())
+                            .map_err(|e| HeapAllocatorError::Address(e))?,
+                        Self::layout_for_region_array(original_size),
+                    )
+                };
+            }
         }
-        vec.push(item);
+        data.push(item);
         Ok(())
+    }
+
+    fn layout_for_region_array(count: usize) -> Layout {
+        Layout::from_size_align(
+            core::mem::size_of::<FreeRegion>() * count,
+            core::mem::align_of::<FreeRegion>(),
+        )
+        .unwrap()
     }
 
     /// Initialize the heap allocator
@@ -107,7 +160,34 @@ impl HeapAllocator {
     ///
     /// # Safety
     /// The provided region must not overlap with any important data
-    pub unsafe fn init(&self, start: *mut u8, size: usize) -> Result<(), AllocatorError> {
+    pub unsafe fn init(&self, start: *mut u8, size: usize) -> Result<(), HeapAllocatorError> {
+        self.allocated_item_count
+            .store(32, core::sync::atomic::Ordering::Release);
+
+        let v_addr = get_memory_manager()
+            .allocate_and_map(
+                get_memory_manager()
+                    .get_current_table()
+                    .map_err(|e| HeapAllocatorError::MemoryManager(e))?,
+                (*crate::SAFE_UPPER_HALF_RANGE).clone(),
+                MemoryFlags::CACHABLE
+                    | MemoryFlags::KERNEL_ONLY
+                    | MemoryFlags::READABLE
+                    | MemoryFlags::WRITABLE,
+                Self::layout_for_region_array(32),
+            )
+            .map_err(|e| HeapAllocatorError::MemoryManager(e))?;
+
+        {
+            let mut lock = self.storage.write();
+            *lock = Vec::from_raw_parts_in(
+                Into::<Address<Virtual>>::into(v_addr).get_inner_ptr_mut() as *mut FreeRegion,
+                0,
+                32,
+                NeverAllocator,
+            );
+        }
+
         self.add_free_region(start, size)?;
         Ok(())
     }
@@ -120,10 +200,13 @@ impl HeapAllocator {
     ///
     /// # Safety
     /// The provided region must not overlap with any important data
-    pub unsafe fn add_free_region(&self, addr: *mut u8, size: usize) -> Result<(), AllocatorError> {
+    pub unsafe fn add_free_region(
+        &self,
+        addr: *mut u8,
+        size: usize,
+    ) -> Result<(), HeapAllocatorError> {
         self.join_nearby();
         trace!("Sorted free regions");
-        let items = self.storage.write();
         trace!("Pushing new free region");
         self.try_internal_push(FreeRegion::new(addr, size))
     }
@@ -171,16 +254,16 @@ impl HeapAllocator {
         region: &FreeRegion,
         size: usize,
         alignment: usize,
-    ) -> Result<usize, AllocatorError> {
+    ) -> Result<usize, HeapAllocatorError> {
         let alloc_start = align(region.start as usize, alignment);
         let alloc_end = alloc_start
             .checked_add(size)
-            .ok_or(AllocatorError::InternalError(
-                "Integer overflow in HeapAllocator::check_region_allocation",
+            .ok_or(HeapAllocatorError::Generic(
+                GenericError::IntOverflowOrUnderflow,
             ))?;
 
         if alloc_end > region.end() as usize {
-            return Err(AllocatorError::RegionTooSmall);
+            return Err(HeapAllocatorError::RegionTooSmall);
         }
 
         Ok(alloc_start)
