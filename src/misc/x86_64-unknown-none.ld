@@ -8,9 +8,9 @@ SECTIONS {
     PROVIDE(__KERNEL_START = .);
     
     . = ALIGN(0x1000);
-    .PROVIDE(__RODATA_START = .);
+    PROVIDE(__RODATA_START = .);
     .rodata : { *(.rodata*) }
-    .PROVIDE(__RODATA_END = .);
+    PROVIDE(__RODATA_END = .);
 
     . = ALIGN(0x1000);
     PROVIDE(__TEXT_START = .);
