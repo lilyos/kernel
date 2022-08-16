@@ -18,8 +18,9 @@ pub struct Mutex<T: ?Sized> {
 
 #[doc(hidden)]
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct MutexGuard<'a, T> {
-    _data: &'a Mutex<T>,
+    data: &'a Mutex<T>,
 }
 
 impl<T> Mutex<T> {
@@ -33,7 +34,7 @@ impl<T> Mutex<T> {
     /// # Arguments
     /// * `value` - The initial value for the mutex
     pub const fn new(value: T) -> Self {
-        Mutex {
+        Self {
             lock: AtomicBool::new(false),
             data: UnsafeCell::new(value),
         }
@@ -41,10 +42,10 @@ impl<T> Mutex<T> {
 
     /// Try to lock the mutex
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
-        if !self.lock.swap(true, Ordering::Acquire) {
-            Some(MutexGuard { _data: self })
-        } else {
+        if self.lock.swap(true, Ordering::Acquire) {
             None
+        } else {
+            Some(MutexGuard { data: self })
         }
     }
 
@@ -88,7 +89,7 @@ impl<T> Mutex<T> {
 
 impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
-        self._data.lock.swap(false, Ordering::Release);
+        self.data.lock.swap(false, Ordering::Release);
     }
 }
 
@@ -96,13 +97,13 @@ impl<T> Deref for MutexGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { &*self._data.data.get() }
+        unsafe { &*self.data.data.get() }
     }
 }
 
 impl<T> DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self._data.data.get() }
+        unsafe { &mut *self.data.data.get() }
     }
 }
 

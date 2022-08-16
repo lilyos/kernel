@@ -45,12 +45,12 @@ impl<T> Lazy<T> {
     }
 
     const unsafe fn get_ref(&self) -> &T {
-        &*(self.val.get() as *mut T)
+        &*self.val.get().cast::<T>()
     }
 
     /// Evaluate the lazy item
     pub unsafe fn eval(&self) {
-        (self.val.get() as *mut T).write((self.func)());
+        self.val.get().cast::<T>().write((self.func)());
         self.init.store(true, Ordering::Release);
     }
 }

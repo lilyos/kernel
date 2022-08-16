@@ -10,6 +10,7 @@ use crate::{
 
 /// Core-local data structure.
 /// This contains the heap allocator, scheduler, and misc. platform data
+#[allow(clippy::module_name_repetitions)]
 #[repr(C, align(0x1000))]
 pub struct CoreLocalData {
     /// The Core's Magic Number
@@ -31,6 +32,7 @@ pub struct CoreManager {
 
 impl CoreManager {
     /// Create a new Core Manager
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             core_refs: RwLock::new(Vec::new_in(NeverAllocator)),
@@ -68,7 +70,9 @@ impl Init for CoreManager {
             let mut data = self.core_refs.write();
             *data = unsafe {
                 Vec::from_raw_parts_in(
-                    region.get_inner_ptr_mut() as *mut (u32, *mut CoreLocalData),
+                    region
+                        .get_inner_ptr_mut()
+                        .cast::<(u32, *mut CoreLocalData)>(),
                     0,
                     init_val,
                     NeverAllocator,

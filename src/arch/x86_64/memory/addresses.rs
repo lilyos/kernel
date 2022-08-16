@@ -26,7 +26,7 @@ bitflags! {
 }
 
 #[derive(Clone, Copy)]
-/// The Raw Address struct for x86_64
+/// The Raw Address struct for `x86_64`
 pub struct RawAddress {
     address: AddressWithFlags,
 }
@@ -37,32 +37,26 @@ impl RawAddress {
 
     /// Create a new raw address
     pub fn new(ptr: u64) -> Result<Self, AddressError> {
-        if !is_address_canonical(
+        if is_address_canonical(
             ptr.try_into()
                 .map_err(|_| AddressError::Generic(GenericError::IntConversionError))?,
             48,
         ) {
-            Err(AddressError::AddressNonCanonical)
-        } else {
             Ok(Self {
-                address: unsafe {
-                    AddressWithFlags::from_bits_unchecked(
-                        (ptr as usize)
-                            .try_into()
-                            .map_err(|_| AddressError::ConversionError)?,
-                    )
-                },
+                address: unsafe { AddressWithFlags::from_bits_unchecked(ptr) },
             })
+        } else {
+            Err(AddressError::AddressNonCanonical)
         }
     }
 
     /// Get the contained address
-    pub fn get_address_raw(&self) -> u64 {
+    pub const fn get_address_raw(self) -> u64 {
         self.address.bits()
     }
 
     /// Get the inner flag type as a reference
-    pub fn get_flags(&self) -> &AddressWithFlags {
+    pub const fn get_flags(&self) -> &AddressWithFlags {
         &self.address
     }
 
@@ -72,38 +66,38 @@ impl RawAddress {
     }
 
     /// Bits 39-47
-    pub fn p4_index(&self) -> usize {
-        (self.address.bits() as usize >> 39) & 0x1FF
+    pub const fn p4_index(self) -> usize {
+        (TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) >> 39) & 0x1FF
     }
 
     /// Bits 30-38
-    pub fn p3_index(&self) -> usize {
-        (self.address.bits() as usize >> 30) & 0x1FF
+    pub const fn p3_index(self) -> usize {
+        (TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) >> 30) & 0x1FF
     }
 
     /// Bits 21-29
-    pub fn p2_index(&self) -> usize {
-        (self.address.bits() as usize >> 21) & 0x1FF
+    pub fn p2_index(self) -> usize {
+        (TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) >> 21) & 0x1FF
     }
 
     /// Bits 12-20
-    pub fn p1_index(&self) -> usize {
-        (self.address.bits() as usize >> 12) & 0x1FF
+    pub const fn p1_index(self) -> usize {
+        (TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) >> 12) & 0x1FF
     }
 
     /// Bits 0-29
-    pub fn level_2_huge_offset(&self) -> usize {
-        self.address.bits() as usize & 0x3FFF_FFFF
+    pub const fn level_2_huge_offset(self) -> usize {
+        TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) & 0x3FFF_FFFF
     }
 
     /// Bits 0-20
-    pub fn level_1_huge_offset(&self) -> usize {
-        self.address.bits() as usize & 0xF_FFFF
+    pub const fn level_1_huge_offset(self) -> usize {
+        TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) & 0xF_FFFF
     }
 
     /// Bits 0-11
-    pub fn frame_offset(&self) -> usize {
-        self.address.bits() as usize & 0xFFFF
+    pub const fn frame_offset(self) -> usize {
+        TryInto::<usize>::try_into(self.address.bits()).unwrap_or(0) & 0xFFFF
     }
 }
 
@@ -123,7 +117,7 @@ impl Debug for RawAddress {
 }
 
 impl PlatformAddress for RawAddress {
-    type AddressType = RawAddress;
+    type AddressType = Self;
 
     type UnderlyingType = u64;
 

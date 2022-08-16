@@ -19,7 +19,8 @@
     const_trait_impl,
     const_convert,
     allocator_api,
-    vec_into_raw_parts
+    vec_into_raw_parts,
+    const_result_drop
 )]
 #![warn(
     clippy::pedantic,
@@ -164,13 +165,13 @@ lazy_static! {
                 ..align(
                     offset
                         + crate::MEMORY_MAP.response
-                            .unwrap()
+                            .expect("Memory Map didn't receive a response")
                             .as_ref()
                             .get_memory_map()
-                            .unwrap()
+                            .expect("Memory Map pointer was invalid")
                             .iter()
                             .last()
-                            .unwrap()
+                            .expect("No item was last")
                             .end() as usize,
                     4096,
                 )

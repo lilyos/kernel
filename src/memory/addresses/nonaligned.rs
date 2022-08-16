@@ -13,11 +13,17 @@ pub struct Address<T>(pub(crate) RawAddress, pub(crate) PhantomData<T>);
 
 impl<T> Address<T> {
     /// Page align an address by truncating the spare bytes
+    ///
+    /// # Errors
+    /// This will return an error if an integer conversion fails
     pub fn align_lossy(&self) -> Result<AlignedAddress<T>, AddressError> {
         Ok(AlignedAddress(
             RawAddress::new_address(
                 align_down(
-                    (self.0.get_address_raw() as usize).try_into().unwrap(),
+                    self.0
+                        .get_address_raw()
+                        .try_into()
+                        .map_err(|_| AddressError::Generic(GenericError::IntConversionError))?,
                     4096,
                 )
                 .try_into()
@@ -28,14 +34,15 @@ impl<T> Address<T> {
     }
 
     /// Get the inner raw address
-    pub fn inner(&self) -> RawAddress {
+    #[must_use]
+    pub const fn inner(&self) -> RawAddress {
         self.0
     }
 }
 
 impl<T> Clone for Address<T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone(), PhantomData)
+        Self(self.0, PhantomData)
     }
 }
 
@@ -52,6 +59,9 @@ impl<T> Debug for Address<T> {
 
 impl Address<Virtual> {
     /// Create a new virtual address
+    ///
+    /// # Errors
+    /// This will return an error if the address is not valid for the underlying type
     pub fn new(address: *const ()) -> Result<Self, AddressError> {
         Ok(Self(
             RawAddress::new(address as UnderlyingType)?,
@@ -60,6 +70,7 @@ impl Address<Virtual> {
     }
 
     /// Get the inner value as a pointer
+    #[must_use]
     pub fn get_inner_ptr(&self) -> *const () {
         self.inner().into_raw() as *const ()
     }
@@ -74,7 +85,7 @@ impl TryFrom<*mut u8> for Address<Virtual> {
     type Error = AddressError;
 
     fn try_from(value: *mut u8) -> Result<Self, Self::Error> {
-        Address::<Virtual>::new(value as *const ())
+        Self::new(value as *const ())
     }
 }
 
@@ -82,12 +93,15 @@ impl TryFrom<*const u8> for Address<Virtual> {
     type Error = AddressError;
 
     fn try_from(value: *const u8) -> Result<Self, Self::Error> {
-        Address::<Virtual>::new(value as *const ())
+        Self::new(value.cast::<()>())
     }
 }
 
 impl Address<Physical> {
     /// Create a new virtual address
+    ///
+    /// # Errors
+    /// This will return an error if the address is not valid for the underlying type
     pub fn new(address: usize) -> Result<Self, AddressError> {
         Ok(Self(
             RawAddress::new(address as UnderlyingType)?,

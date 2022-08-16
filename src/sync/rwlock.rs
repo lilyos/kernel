@@ -2,7 +2,7 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU32, Ordering};
 
-/// A RWLock, allowing either many readers or one writer
+/// A Read/Write Lock, allowing either many readers or one writer
 #[derive(Debug)]
 pub struct RwLock<T: ?Sized> {
     write_lock: UnsafeCell<bool>,
@@ -13,13 +13,13 @@ pub struct RwLock<T: ?Sized> {
 // Write handle
 #[derive(Debug)]
 pub struct WriteLockGuard<'a, T> {
-    _data: &'a RwLock<T>,
+    data: &'a RwLock<T>,
 }
 
 // Read handle
 #[derive(Debug)]
 pub struct ReadLockGuard<'a, T> {
-    _data: &'a RwLock<T>,
+    data: &'a RwLock<T>,
 }
 
 impl<T> RwLock<T> {
@@ -32,12 +32,12 @@ impl<T> RwLock<T> {
         *inner = val;
     }
 
-    /// Create a new RWLock
+    /// Create a new `RWLock`
     ///
     /// # Arguments
     /// * `value` - The initial value to use
     pub const fn new(value: T) -> Self {
-        RwLock {
+        Self {
             write_lock: UnsafeCell::new(false),
             read_locks: AtomicU32::new(0),
             data: UnsafeCell::new(value),
@@ -52,11 +52,11 @@ impl<T> RwLock<T> {
         }
 
         // Set status to locked
-        if !self.get_write_lock() {
-            self.set_write_lock(true);
-            Some(WriteLockGuard { _data: self })
-        } else {
+        if self.get_write_lock() {
             None
+        } else {
+            self.set_write_lock(true);
+            Some(WriteLockGuard { data: self })
         }
     }
 
@@ -75,7 +75,7 @@ impl<T> RwLock<T> {
             None
         } else {
             self.read_locks.fetch_add(1, Ordering::Acquire);
-            Some(ReadLockGuard { _data: self })
+            Some(ReadLockGuard { data: self })
         }
     }
 
@@ -92,7 +92,7 @@ impl<T> RwLock<T> {
     ///
     /// # Safety
     /// There must be no `&mut` references in existence
-    pub unsafe fn as_ref_unchecked(&self) -> &T {
+    pub const unsafe fn as_ref_unchecked(&self) -> &T {
         &*self.data.get()
     }
 
@@ -107,13 +107,13 @@ impl<T> RwLock<T> {
 
 impl<T> Drop for WriteLockGuard<'_, T> {
     fn drop(&mut self) {
-        self._data.set_write_lock(false);
+        self.data.set_write_lock(false);
     }
 }
 
 impl<T> Drop for ReadLockGuard<'_, T> {
     fn drop(&mut self) {
-        self._data.read_locks.fetch_sub(1, Ordering::Release);
+        self.data.read_locks.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -121,13 +121,13 @@ impl<T> Deref for WriteLockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { &*self._data.data.get() }
+        unsafe { &*self.data.data.get() }
     }
 }
 
 impl<T> DerefMut for WriteLockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self._data.data.get() }
+        unsafe { &mut *self.data.data.get() }
     }
 }
 
@@ -135,7 +135,7 @@ impl<T> Deref for ReadLockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { &*self._data.data.get() }
+        unsafe { &*self.data.data.get() }
     }
 }
 

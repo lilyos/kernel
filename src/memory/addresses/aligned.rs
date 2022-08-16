@@ -8,6 +8,7 @@ use crate::{
 use super::{Address, Physical, RawAddress, UnderlyingType, Virtual};
 
 /// Struct representing an aligned address
+#[allow(clippy::module_name_repetitions)]
 pub struct AlignedAddress<T>(pub(crate) RawAddress, pub(crate) PhantomData<T>);
 
 impl<T> Clone for AlignedAddress<T> {
@@ -20,26 +21,28 @@ impl<T> Copy for AlignedAddress<T> {}
 
 impl<T> AlignedAddress<T> {
     /// Get the inner raw address
-    pub fn inner(&self) -> RawAddress {
+    #[must_use]
+    pub const fn inner(&self) -> RawAddress {
         self.0
     }
 }
 
 impl AlignedAddress<Virtual> {
-    /// Try to form an aligned address from a usize
+    /// Try to form an aligned address from a pointer
+    ///
+    /// # Errors
+    /// This will return an error if the address isn't aligned
     pub fn new(addr: *const ()) -> Result<Self, AddressError> {
         let addr = addr as usize;
-        if addr % 4096 != 0 {
-            Err(AddressError::AddressNotAligned)
+        if addr % 4096 == 0 {
+            Ok(Self(RawAddress::new(addr as UnderlyingType)?, PhantomData))
         } else {
-            Ok(AlignedAddress(
-                RawAddress::new(addr as UnderlyingType)?,
-                PhantomData,
-            ))
+            Err(AddressError::AddressNotAligned)
         }
     }
 
     /// Get the inner value as a pointer
+    #[must_use]
     pub fn get_inner_ptr(&self) -> *const () {
         self.inner().into_raw() as *const ()
     }
@@ -52,15 +55,14 @@ impl AlignedAddress<Virtual> {
 
 impl AlignedAddress<Physical> {
     /// Try to form an aligned address from a usize
+    /// # Errors
+    /// This will return an error if the address isn't aligned
     pub fn new(addr: usize) -> Result<Self, AddressError> {
-        let addr = addr;
-        if addr % 4096 != 0 {
-            Err(AddressError::AddressNotAligned)
+        let addr = addr as usize;
+        if addr % 4096 == 0 {
+            Ok(Self(RawAddress::new(addr as UnderlyingType)?, PhantomData))
         } else {
-            Ok(AlignedAddress(
-                RawAddress::new(addr as UnderlyingType)?,
-                PhantomData,
-            ))
+            Err(AddressError::AddressNotAligned)
         }
     }
 }
@@ -94,7 +96,7 @@ impl TryFrom<*const u8> for AlignedAddress<Virtual> {
     type Error = AddressError;
 
     fn try_from(value: *const u8) -> Result<Self, Self::Error> {
-        Self::new(value as *const ())
+        Self::new(value.cast::<()>())
     }
 }
 
@@ -154,7 +156,7 @@ impl TryFrom<UnderlyingType> for AlignedAddress<Physical> {
 
 impl From<AlignedAddress<Physical>> for usize {
     fn from(val: AlignedAddress<Physical>) -> Self {
-        val.inner().into_raw() as usize
+        val.inner().into_raw().try_into().unwrap_or(0)
     }
 }
 
@@ -166,6 +168,6 @@ impl From<AlignedAddress<Physical>> for UnderlyingType {
 
 impl<T> From<AlignedAddress<T>> for Address<T> {
     fn from(val: AlignedAddress<T>) -> Self {
-        Address(val.inner(), PhantomData)
+        Self(val.inner(), PhantomData)
     }
 }

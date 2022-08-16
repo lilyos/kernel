@@ -1,6 +1,6 @@
 use core::alloc::{Allocator, GlobalAlloc};
 
-/// Struct that implements [Allocator] and [GlobalAlloc], but never actually allocates.
+/// Struct that implements [Allocator] and [`GlobalAlloc`], but never actually allocates.
 /// It instead returns an error each time
 pub struct NeverAllocator;
 

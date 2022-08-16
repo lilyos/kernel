@@ -1,7 +1,7 @@
 use core::alloc::Layout;
 
 use crate::{
-    errors::MemoryManagerError,
+    errors::{GenericError, MemoryManagerError},
     macros::bitflags::bitflags,
     memory::{
         addresses::{Address, AlignedAddress, Physical, Virtual},
@@ -25,6 +25,10 @@ bitflags! {
 }
 
 /// Trait for a [Platform](crate::traits::Platform)'s Memory Manager
+///
+/// # Safety
+/// This must not overwrite random memory and must ensure
+/// mappings and unmappings occur unless they return an error
 pub unsafe trait MemoryManager {
     /// The Root Table type for the Platform
     type RootTable;
@@ -34,6 +38,9 @@ pub unsafe trait MemoryManager {
     /// # Safety
     /// The caller must guarantee the root table will not be freed for the duration it is used.
     /// Addtionally, the table must be identity mapped
+    ///
+    /// # Errors
+    /// This will return an error if the table is unable to be set
     unsafe fn current_table(&self, tr: &mut Self::RootTable) -> Result<(), MemoryManagerError>;
 
     /// Get the current Root Table
@@ -41,6 +48,9 @@ pub unsafe trait MemoryManager {
     /// # Safety
     /// The returned reference must **not** be aliased, as that would violate exclusive access rules
     /// Addtionally, the table must be identity mapped
+    ///
+    /// # Errors
+    /// This will return an error if the current table is not yet set
     unsafe fn get_current_table(&self) -> Result<&mut Self::RootTable, MemoryManagerError>;
 
     /// Map a given physical address to a specified virtual address
@@ -48,6 +58,9 @@ pub unsafe trait MemoryManager {
     /// # Safety
     /// The specified root table must be mapped in memory
     /// This memory must not be in use by the kernel, otherwise undefined behavior may occur
+    ///
+    /// # Errors
+    /// This will return an error if the page or any intermediaries are unable to be mapped
     unsafe fn map(
         &self,
         rtable: &mut Self::RootTable,
@@ -61,6 +74,9 @@ pub unsafe trait MemoryManager {
     /// # Safety
     /// The specified root table must be mapped in memory
     /// This memory must not be in use by the kernel, otherwise undefined behavior may occur
+    ///
+    /// # Errors
+    /// This will return an error if the address is unable to be unmapped
     unsafe fn unmap(
         &self,
         rtable: &mut Self::RootTable,
@@ -96,7 +112,7 @@ pub unsafe trait MemoryManager {
                 return current;
             }
             if self.virtual_to_physical(rtable, addr.into()).is_none() {
-                current = Some(addr.clone());
+                current = Some(addr);
                 consecutive += 1;
             } else {
                 current = None;
@@ -111,6 +127,9 @@ pub unsafe trait MemoryManager {
     ///
     /// # Safety
     /// The specified root table must be mapped in memory
+    ///
+    /// # Errors
+    /// This will return an error if allocation fails or mapping fails
     unsafe fn allocate_and_map(
         &self,
         rtable: &'static mut Self::RootTable,
@@ -120,7 +139,7 @@ pub unsafe trait MemoryManager {
     ) -> Result<AlignedAddress<Virtual>, MemoryManagerError> {
         let p_addr = PHYSICAL_ALLOCATOR
             .allocate(layout)
-            .map_err(|e| MemoryManagerError::Allocator(e))?;
+            .map_err(MemoryManagerError::Allocator)?;
 
         let pages = align(layout.size(), 4096);
 
@@ -128,16 +147,23 @@ pub unsafe trait MemoryManager {
             .find_free_mapping_area(rtable, allowed_range, pages, layout.align())
             .ok_or(MemoryManagerError::VirtualMemoryExhausted)?;
 
-        for (idx, addr) in (free_area.inner().into_raw() as usize
-            ..(free_area.inner().into_raw() as usize + (pages * 4096)))
+        for (idx, addr) in (TryInto::<usize>::try_into(free_area.inner().into_raw())
+            .map_err(|_| MemoryManagerError::Generic(GenericError::IntConversionError))?
+            ..(TryInto::<usize>::try_into(free_area.inner().into_raw())
+                .map_err(|_| MemoryManagerError::Generic(GenericError::IntConversionError))?
+                + (pages * 4096)))
             .step_by(4096)
             .filter_map(|addr| AlignedAddress::<Virtual>::new(addr as *const ()).ok())
             .enumerate()
         {
             self.map(
                 rtable,
-                AlignedAddress::<Physical>::new(p_addr.inner().into_raw() as usize + (idx * 4096))
-                    .map_err(|e| MemoryManagerError::Address(e))?,
+                AlignedAddress::<Physical>::new(
+                    TryInto::<usize>::try_into(p_addr.inner().into_raw()).map_err(|_| {
+                        MemoryManagerError::Generic(GenericError::IntConversionError)
+                    })? + (idx * 4096),
+                )
+                .map_err(MemoryManagerError::Address)?,
                 addr,
                 flags,
             )?;
@@ -151,6 +177,8 @@ pub unsafe trait MemoryManager {
     /// # Safety
     /// The specified root table must be mapped in memory
     /// The memory must no longer be in use
+    /// # Errors
+    /// This will return an error if deallocation fails or unmapping fails
     unsafe fn deallocate_and_unmap(
         &self,
         rtable: &'static mut Self::RootTable,
@@ -163,9 +191,10 @@ pub unsafe trait MemoryManager {
             .virtual_to_physical(&*rtable, addr.into())
             .ok_or(MemoryManagerError::AddressUnmapped)?
             .try_into()
-            .map_err(|e| MemoryManagerError::Address(e))?;
-        let _ = PHYSICAL_ALLOCATOR.deallocate(phys_addr, layout);
+            .map_err(MemoryManagerError::Address)?;
+        PHYSICAL_ALLOCATOR.deallocate(phys_addr, layout);
 
+        #[allow(clippy::cast_possible_truncation)]
         for addr in (addr.inner().into_raw() as usize
             ..(addr.inner().into_raw() as usize + (pages * 4096)))
             .step_by(4096)

@@ -1,5 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+/// Semaphore Errors
+#[allow(clippy::module_name_repetitions)]
 pub enum SemaphoreError {
     /// The amount of tickets has been exhausted
     TicketsExhausted,
@@ -13,8 +15,9 @@ pub struct Semaphore {
 
 impl Semaphore {
     /// Create a new semaphore with the intial ticket count `initial`
-    pub const fn new(initial: u32) -> Semaphore {
-        Semaphore {
+    #[must_use]
+    pub const fn new(initial: u32) -> Self {
+        Self {
             count: AtomicU32::new(initial),
         }
     }
@@ -36,6 +39,10 @@ impl Semaphore {
     }
 
     /// Try to decrease semaphore value
+    ///
+    /// # Errors
+    /// If there are no available tickets, then this will return a
+    /// `SemaphoreError::TicketsExhausted`
     #[inline]
     pub fn try_down(&self) -> Result<(), SemaphoreError> {
         let mut value = self.count.load(Ordering::Acquire);
@@ -52,7 +59,7 @@ impl Semaphore {
 
 impl Default for Semaphore {
     fn default() -> Self {
-        Semaphore::new(0)
+        Self::new(0)
     }
 }
 

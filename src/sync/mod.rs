@@ -15,15 +15,15 @@ pub(crate) use lazy::{lazy_static, Lazy};
 
 /// Lie about something being sync
 #[repr(transparent)]
-pub struct FakeSync<T> {
+pub struct FakeSyncWrapper<T> {
     /// The inner data
     pub _inner: T,
 }
 
-impl<T> From<T> for FakeSync<T> {
+impl<T> From<T> for FakeSyncWrapper<T> {
     fn from(v: T) -> Self {
         Self { _inner: v }
     }
 }
 
-unsafe impl<T> Sync for FakeSync<T> {}
+unsafe impl<T> Sync for FakeSyncWrapper<T> {}

@@ -9,7 +9,7 @@ use log::{debug, info};
 
 use crate::{
     collections::BitSlice,
-    errors::{GenericError, AllocatorError},
+    errors::{AllocatorError, GenericError},
     memory::{
         addresses::{AlignedAddress, Physical},
         utilities::align,
@@ -46,6 +46,7 @@ impl<'a> PageAllocator<'a> {
     /// let alloc = PageAllocator::new();
     /// unsafe { alloc.init(mmap) }
     /// ```
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             pages: AtomicUsize::new(0),
@@ -177,9 +178,8 @@ impl<'a> Init for PageAllocator<'a> {
                 end = mmen_end as usize;
             }
             pages += (mmen_end
-                - TryInto::<usize>::try_into(mentry.base).map_err(|_| {
-                    AllocatorError::Generic(GenericError::IntConversionError)
-                })?)
+                - TryInto::<usize>::try_into(mentry.base)
+                    .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?)
                 / Self::BLOCK_SIZE;
         }
         let scratch_bytes = align(end / 4096, 8) / 8;
@@ -197,22 +197,12 @@ impl<'a> Init for PageAllocator<'a> {
             .try_into()
             .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?;
 
-        let scratch_end = align(
-            (scratch_start + scratch_bytes)
-                .try_into()
-                .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))?,
-            Self::BLOCK_SIZE,
-        ) - 1;
+        let scratch_end = align(scratch_start + scratch_bytes, Self::BLOCK_SIZE) - 1;
 
         {
             let mut sscratch = self.scratch.write();
             unsafe {
-                sscratch.init(
-                    scratch_start as *mut u8,
-                    scratch_bytes.try_into().map_err(|_| {
-                        AllocatorError::Generic(GenericError::IntConversionError)
-                    })?,
-                )
+                sscratch.init(scratch_start as *mut u8, scratch_bytes);
             };
             sscratch.set(0, true);
             for i in mmap.iter() {
@@ -236,7 +226,7 @@ impl<'a> Init for PageAllocator<'a> {
                                 AllocatorError::Generic(GenericError::IntConversionError)
                             })?,
                             true,
-                        )
+                        );
                     }
                 }
             }
@@ -276,7 +266,7 @@ unsafe impl<'a> PhysicalAllocator for PageAllocator<'a> {
         })?;
 
         let ptr = self.address_for_block(block);
-        let addr = AlignedAddress::try_from(ptr).expect("Page wasn't aligned???");
+        let addr = AlignedAddress::try_from(ptr).map_err(AllocatorError::Address)?;
         self.set_range(pages, block, true);
         Ok(addr)
     }
@@ -284,6 +274,15 @@ unsafe impl<'a> PhysicalAllocator for PageAllocator<'a> {
     unsafe fn deallocate(&self, ptr: AlignedAddress<Physical>, layout: core::alloc::Layout) {
         let pages = Self::page_count_for_layout(layout);
 
-        self.set_range(pages, ptr.inner().into_raw() as usize / 4096, false);
+        self.set_range(
+            pages,
+            match TryInto::<usize>::try_into(ptr.inner().into_raw())
+                .map_err(|_| AllocatorError::Generic(GenericError::IntConversionError))
+            {
+                Ok(v) => v,
+                Err(_) => return,
+            } / 4096,
+            false,
+        );
     }
 }

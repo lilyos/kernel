@@ -1,7 +1,7 @@
 use core::{alloc::Layout, fmt::Display, marker::PhantomData};
 
 use crate::{
-    errors::{MemoryManagerError, AllocatorError},
+    errors::{AllocatorError, MemoryManagerError},
     get_memory_manager,
     memory::addresses::{AlignedAddress, Physical},
     traits::{MemoryFlags, MemoryManager, PhysicalAllocator, PlatformAddress},
@@ -32,7 +32,7 @@ pub fn deallocate_frame<A: PhysicalAllocator>(allocator: A, frame: AlignedAddres
 #[allow(dead_code)]
 /// Deallocate a frame with the current global physical allocator
 pub fn deallocate_frame_platform_alloc(frame: AlignedAddress<Physical>) {
-    deallocate_frame(&crate::PHYSICAL_ALLOCATOR, frame)
+    deallocate_frame(&crate::PHYSICAL_ALLOCATOR, frame);
 }
 
 #[repr(transparent)]
@@ -44,7 +44,7 @@ impl<L> PageTableEntry<L> {
     /// Address mask for Virtual Addresses
     pub const BIT_52_ADDRESS: usize = 0x000F_FFFF_FFFF_F000;
 
-    /// Create a new PageTable Entry
+    /// Create a new `PageTable` Entry
     ///
     /// # Example
     /// ```
@@ -74,7 +74,7 @@ impl<L> PageTableEntry<L> {
                     MemoryFlags::READABLE => {}
                     MemoryFlags::WRITABLE => addr_flags.insert(AddressWithFlags::WRITABLE),
                     MemoryFlags::KERNEL_ONLY => {
-                        addr_flags.remove(AddressWithFlags::USER_ACCESSIBLE)
+                        addr_flags.remove(AddressWithFlags::USER_ACCESSIBLE);
                     }
                     MemoryFlags::CACHABLE => addr_flags.remove(
                         AddressWithFlags::DISABLE_CACHE | AddressWithFlags::WRITE_THROUGH_CACHING,
@@ -365,8 +365,8 @@ impl TableLevel1 {
     ) -> Result<&mut AlignedAddress<Physical>, MemoryManagerError> {
         let entry = self.data[index].clone();
         if !entry.get_flags().contains(AddressWithFlags::PRESENT) {
-            let addr = allocate_frame_platform_alloc()
-                .map_err(|e| MemoryManagerError::Allocator(e))?;
+            let addr =
+                allocate_frame_platform_alloc().map_err(|e| MemoryManagerError::Allocator(e))?;
             self.data[index] = PageTableEntry::new(addr, flags);
         }
 

@@ -11,8 +11,9 @@ pub struct Spinlock {
 
 impl Spinlock {
     /// Create a new spinlock
-    pub const fn new() -> Spinlock {
-        Spinlock {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
             flag: AtomicBool::new(false),
         }
     }

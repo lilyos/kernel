@@ -1,5 +1,5 @@
 mod heap;
-pub use heap::HeapAllocator;
+pub use heap::Allocator as HeapAllocator;
 
 mod physical_allocator;
 pub use physical_allocator::PageAllocator;
