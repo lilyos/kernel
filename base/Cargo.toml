@@ -1,0 +1,8 @@
+[package]
+edition = "2021"
+name = "kernel"
+version = "0.1.45"
+
+[dependencies]
+limine-protocol = "0.3.2"
+log = "0.4.17"
