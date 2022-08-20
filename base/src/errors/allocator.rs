@@ -1,4 +1,4 @@
-use super::{GenericError, AddressError};
+use super::{AddressError, GenericError};
 
 /// Errors returned from allocators
 #[derive(Clone, Copy, Debug)]

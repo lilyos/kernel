@@ -6,12 +6,7 @@ use crate::{
 pub struct TimerManager {}
 
 unsafe impl TimerManagerTrait for TimerManager {
-    fn set_timer(
-        &self,
-        _: u64,
-        _: f64,
-        _: u64,
-    ) -> Result<(), TimerManagerError> {
+    fn set_timer(&self, _: u64, _: f64, _: u64) -> Result<(), TimerManagerError> {
         Err(TimerManagerError::Generic(GenericError::NotImplemented))
     }
 

@@ -32,7 +32,8 @@ impl Log for PlatformLogger {
             },
             record.level(),
             record.args()
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     fn flush(&self) {}

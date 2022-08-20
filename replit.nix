@@ -1,10 +1,8 @@
 { pkgs }: {
 	deps = [
-		pkgs.rustup
-  pkgs.rustc
+		pkgs.qemu
+  pkgs.rustup
 		pkgs.rustfmt
-		pkgs.cargo
-		pkgs.cargo-edit
         pkgs.rust-analyzer
 	];
 }

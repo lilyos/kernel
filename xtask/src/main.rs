@@ -1,46 +1,21 @@
-use std::str::FromStr;
+use duct::cmd;
 
-use anyhow::bail;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
-#[derive(Parser, Debug)]
-#[clap(author = "Jess B <jessmakesmeshes@gmail.com>", version, about = "XTask runner for the Lotus kernel", long_about = None)]
-pub struct Arguments {
-    #[clap(short, long)]
-    /// Build or test in release mode
-    pub release: bool,
-    #[clap(subcommand)]
-    pub command: Command,
-}
+mod commands;
+use commands::Arguments;
 
-#[derive(Subcommand, Debug)]
-pub enum Command {
-    Build {
-        #[clap(short, long)]
-        target: Target,
-    },
-}
-
-#[derive(Debug)]
-pub enum Target {
-    X86_64,
-}
-
-impl FromStr for Target {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_lowercase().as_str() {
-            "x86_64" => Ok(Self::X86_64),
-            _ => bail!("Invalid target specified"),
-        }
-    }
-}
+mod logger;
+use logger::enable_logging;
 
 fn main() {
     let args = Arguments::parse();
 
-    println!("{:#?}", args);
+    enable_logging(args.verbosity).unwrap();
 
+    log::debug!("Debugging events enabled");
+    log::trace!("Tracing events enabled");
+
+    println!("{:#?}", args);
     println!("Hello, world!");
 }

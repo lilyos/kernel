@@ -1,4 +1,4 @@
-run = "cargo build"
+run = "cargo xtask"
 hidden = ["target"]
 
 [packager]

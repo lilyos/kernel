@@ -1,4 +1,4 @@
-use super::{AddressError, GenericError, AllocatorError};
+use super::{AddressError, AllocatorError, GenericError};
 
 /// Errors returned by the memory manager
 #[derive(Debug, Clone, Copy)]
