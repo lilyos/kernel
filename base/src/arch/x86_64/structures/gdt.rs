@@ -171,7 +171,7 @@ impl SystemSegmentAccessByte {
 
     /// Set segment type
     pub const fn segment_type(mut self, dtype: SegmentType) -> Self {
-        self.bits |= (dtype as u8 & 0b1_1111);
+        self.bits |= dtype as u8 & 0b1_1111;
         self
     }
 

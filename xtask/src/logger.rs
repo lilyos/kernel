@@ -7,7 +7,7 @@ pub fn enable_logging(verbosity: usize) -> anyhow::Result<()> {
         .warn(Color::Yellow)
         .trace(Color::BrightBlack);
 
-    let level_colors = line_colors.clone().info(Color::Green);
+    let level_colors = line_colors.info(Color::Green);
 
     fern::Dispatch::new()
         .format(move |out, msg, record| {
@@ -22,12 +22,12 @@ pub fn enable_logging(verbosity: usize) -> anyhow::Result<()> {
                 msg = msg
             ))
         })
-        .level(dbg!(match verbosity {
+        .level(match verbosity {
             0 => LevelFilter::Info,
             1 => LevelFilter::Debug,
             2.. => LevelFilter::Trace,
             _ => unreachable!(),
-        }))
+        })
         .chain(std::io::stdout())
         .apply()?;
     Ok(())
